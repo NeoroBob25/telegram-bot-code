@@ -120,7 +120,7 @@ async def handle_start(message: Message):
             ],
             resize_keyboard=True
         )
-        await message.answer("Вітаю! Ось доступні дії для тренера:", reply_markup=keyboard)
+        await message.answer("Вітаю, Богдане! Я оновився! Ось доступні дії:", reply_markup=keyboard)
     else:
         if user_id not in members or not members.get(user_id, {}).get("interacted", False):
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
