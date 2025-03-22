@@ -130,18 +130,25 @@ async def update_code(message: Message):
         with open(temp_file_path, "w", encoding="utf-8") as f:
             f.write(new_code)
 
+        print("Починаємо перезавантаження модуля...")
         if "bot" in sys.modules:
             importlib.reload(sys.modules["bot"])
+            print("Модуль перезавантажено.")
         else:
             importlib.import_module("bot")
+            print("Модуль імпортовано.")
 
         global router, dp
         router = Router()
         dp.include_router(router)
 
+        print("Реєструємо нові обробники...")
         register_handlers()
+        print("Обробники зареєстровано.")
 
-        await message.answer("Бот успішно оновлено! Виконай /start для перевірки.")
+        await message.answer("Бот успішно оновлено! Зачекай кілька секунд і виконай /start для перевірки.")
+        # Примусово перезапускаємо додаток на Fly.io
+        os.system("flyctl apps restart telegram-bot-wild-frog-9619 &")
     except Exception as e:
         await message.answer(f"Помилка при оновленні: {str(e)}")
 
@@ -202,6 +209,7 @@ def register_handlers():
 
     @router.callback_query(lambda c: c.data.startswith("join_"))
     async def join_team(callback: types.CallbackQuery):
+        print(f"Отримано callback для join_team: {callback.data}")
         user_id = int(callback.data.replace("join_", ""))
         if user_id == callback.from_user.id:
             username = callback.from_user.username or f"User_{user_id}"
@@ -220,6 +228,7 @@ def register_handlers():
 
     @router.callback_query(lambda c: c.data.startswith("decline_"))
     async def decline_team(callback: types.CallbackQuery):
+        print(f"Отримано callback для decline_team: {callback.data}")
         user_id = int(callback.data.replace("decline_", ""))
         if user_id == callback.from_user.id:
             members = load_members()
@@ -356,6 +365,7 @@ def register_handlers():
 
     @router.callback_query(lambda c: c.data.startswith("decrease_") or c.data.startswith("increase_"))
     async def change_trainings(callback: types.CallbackQuery, state: FSMContext):
+        print(f"Отримано callback: {callback.data}")
         user_id = int(callback.data.split("_")[1])
         members = load_members()
         if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
@@ -386,18 +396,29 @@ def register_handlers():
 
     @router.callback_query(lambda c: c.data.startswith("set_trainings_"))
     async def set_trainings(callback: types.CallbackQuery, state: FSMContext):
-        print(f"Callback data: {callback.data}")
-        user_id = int(callback.data.split("_")[1])
+        print(f"Отримано callback для set_trainings: {callback.data}")
+        try:
+            # Розбиваємо callback.data: "set_trainings_<user_id>_<name>"
+            parts = callback.data.split("_", 2)  # Розбиваємо на 3 частини
+            if len(parts) != 3 or parts[0] != "set_trainings":
+                raise ValueError(f"Неправильний формат callback.data: {callback.data}")
+            user_id = int(parts[1])  # Другий елемент — user_id
+            name = urllib.parse.unquote(parts[2])  # Третій елемент — закодоване ім'я
+        except (ValueError, IndexError) as e:
+            print(f"Помилка при розборі callback.data: {e}")
+            await callback.answer("Помилка обробки запиту. Спробуй ще раз.", show_alert=True)
+            return
+
         members = load_members()
         if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
             await callback.answer("Ви не маєте прав для цієї дії!", show_alert=True)
             return
-        _, _, name = callback.data.split("_", 2)
-        name = urllib.parse.unquote(name)
+
         user_clients = load_clients(user_id)
         if name not in user_clients:
             await callback.answer("Клієнта не знайдено!")
             return
+
         await state.update_data(user_id=user_id, name=name)
         print(f"Збережено в стані: user_id={user_id}, name={name}")
         await state.set_state(SetTrainings.new_trainings)
@@ -426,6 +447,7 @@ def register_handlers():
 
     @router.callback_query(lambda c: c.data.startswith("delete_"))
     async def delete_client(callback: types.CallbackQuery):
+        print(f"Отримано callback для delete_client: {callback.data}")
         user_id = int(callback.data.split("_")[1])
         members = load_members()
         if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
@@ -446,6 +468,7 @@ def register_handlers():
 
     @router.callback_query(lambda c: c.data.startswith("info_"))
     async def show_client_info(callback: types.CallbackQuery, state: FSMContext):
+        print(f"Отримано callback для show_client_info: {callback.data}")
         user_id = int(callback.data.split("_")[1])
         members = load_members()
         if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
@@ -479,6 +502,7 @@ def register_handlers():
 
     @router.callback_query(lambda c: c.data.startswith("edit_profile_"))
     async def edit_client_profile(callback: types.CallbackQuery, state: FSMContext):
+        print(f"Отримано callback для edit_client_profile: {callback.data}")
         user_id = int(callback.data.split("_")[1])
         members = load_members()
         if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
@@ -572,6 +596,7 @@ def register_handlers():
 
     @router.callback_query(lambda c: c.data.startswith("share_profile_"))
     async def share_client_profile(callback: types.CallbackQuery):
+        print(f"Отримано callback для share_client_profile: {callback.data}")
         user_id = int(callback.data.split("_")[1])
         members = load_members()
         if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
@@ -605,6 +630,7 @@ def register_handlers():
 
     @router.callback_query(lambda c: c.data.startswith("view_archive_"))
     async def view_archive(callback: types.CallbackQuery):
+        print(f"Отримано callback для view_archive: {callback.data}")
         user_id = int(callback.data.split("_")[1])
         members = load_members()
         if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
@@ -637,6 +663,7 @@ def register_handlers():
 
     @router.callback_query(lambda c: c.data.startswith("analyze_results_"))
     async def analyze_results(callback: types.CallbackQuery):
+        print(f"Отримано callback для analyze_results: {callback.data}")
         user_id = int(callback.data.split("_")[1])
         members = load_members()
         if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
@@ -704,6 +731,7 @@ def register_handlers():
 
     @router.callback_query(ManageAccess.access_type)
     async def process_access_type(callback: types.CallbackQuery, state: FSMContext):
+        print(f"Отримано callback для process_access_type: {callback.data}")
         user_id = callback.from_user.id
         if user_id not in ALLOWED_USERS:
             await callback.answer("Ви не маєте прав для цієї дії!", show_alert=True)
