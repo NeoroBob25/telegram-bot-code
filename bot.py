@@ -13,6 +13,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 import uvicorn
 from fastapi import FastAPI
+
 # Налаштування
 TOKEN = "8097225217:AAERSuN5K68msP6JZzpSG9NR7XiDTeXBH6Y"  # Перевір, чи це твій токен
 ADMIN_ID = 385298897  # Перевір, чи це твій Telegram ID
