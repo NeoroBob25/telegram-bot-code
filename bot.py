@@ -11,6 +11,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+import uvicorn
+from fastapi import FastAPI
 
 # Налаштування
 TOKEN = "8097225217:AAERSuN5K68msP6JZzpSG9NR7XiDTeXBH6Y"  # Перевір, чи це твій токен
@@ -20,6 +22,13 @@ CODE_UPDATE_URL = "https://raw.githubusercontent.com/bohdan123/telegram-bot-code
 
 # Шлях до бази даних
 DB_PATH = "/data/bot.db" if os.getenv("FLY_APP_NAME") else "bot.db"
+
+# Ініціалізація FastAPI
+app = FastAPI()
+
+@app.get("/")
+async def root():
+    return {"message": "Bot is running"}
 
 # Ініціалізація бота
 storage = MemoryStorage()
@@ -444,7 +453,7 @@ async def update_code(message: Message):
         os._exit(0)  # Примусово завершуємо процес
     except requests.exceptions.RequestException as e:
         print(f"Помилка при завантаженні коду: {e}")
-        await message.answer(f"Помилка при завантаженні коду: {str(e)}")
+        await message.answer(f"Помилка при заванталенні коду: {str(e)}")
     except Exception as e:
         print(f"Помилка при оновленні: {str(e)}")
         await message.answer(f"Помилка при оновленні: {str(e)}")
@@ -724,13 +733,16 @@ async def main():
     except Exception as e:
         print(f"Помилка при видаленні вебхука: {e}")
         raise
-    print("Запускаємо polling...")
-    await dp.start_polling(bot)
+    print("Запускаємо polling у фоновому режимі...")
+    asyncio.create_task(dp.start_polling(bot))
     print("Polling запущено.")
 
 if __name__ == "__main__":
     print("Запускаємо бота...")
     try:
-        asyncio.run(main())
+        # Запускаємо FastAPI-сервер на порту 8080
+        config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_level="info")
+        server = uvicorn.Server(config)
+        asyncio.run(server.serve())
     except Exception as e:
         print(f"Помилка при запуску бота: {e}")
