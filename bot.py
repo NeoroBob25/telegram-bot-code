@@ -3,7 +3,6 @@ import sys
 import json
 import sqlite3
 import urllib.parse
-import importlib
 import asyncio
 import requests
 from aiogram import Bot, Dispatcher, Router, types
@@ -28,19 +27,29 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=storage)
 router = Router()
 
-# Клас для стану
+# Класи для станів
 class SetTrainings(StatesGroup):
     new_trainings = State()
+
+class AddClientData(StatesGroup):
+    name = State()
+    price = State()
+    category = State()
 
 # Ініціалізація бази даних
 def init_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
+        # Таблиця для клієнтів (існуюча)
         c.execute('''CREATE TABLE IF NOT EXISTS clients
                      (user_id INTEGER, client_name TEXT, trainings INTEGER, contact TEXT, profile TEXT, archive TEXT)''')
+        # Таблиця для членів (існуюча)
         c.execute('''CREATE TABLE IF NOT EXISTS members
                      (user_id INTEGER PRIMARY KEY, chat_id INTEGER, interacted INTEGER, role TEXT)''')
+        # Нова таблиця для даних клієнтів (персональні та групові тренування)
+        c.execute('''CREATE TABLE IF NOT EXISTS client_data
+                     (user_id INTEGER, client_name TEXT, category TEXT, price INTEGER, trainings INTEGER, total_earnings INTEGER)''')
         conn.commit()
         conn.close()
         print("База даних ініціалізована успішно.")
@@ -116,6 +125,58 @@ def save_member(user_id, member_data):
     except sqlite3.Error as e:
         print(f"Помилка збереження члена: {e}")
 
+def load_client_data(user_id):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT client_name, category, price, trainings, total_earnings FROM client_data WHERE user_id = ?", (user_id,))
+        client_data = {}
+        for row in c.fetchall():
+            client_name, category, price, trainings, total_earnings = row
+            if client_name not in client_data:
+                client_data[client_name] = {}
+            client_data[client_name][category] = {
+                "price": price,
+                "trainings": trainings,
+                "total_earnings": total_earnings
+            }
+        conn.close()
+        return client_data
+    except sqlite3.Error as e:
+        print(f"Помилка завантаження даних клієнтів: {e}")
+        return {}
+
+def save_client_data(user_id, client_name, category, data):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''INSERT OR REPLACE INTO client_data (user_id, client_name, category, price, trainings, total_earnings)
+                     VALUES (?, ?, ?, ?, ?, ?)''',
+                  (user_id, client_name, category, data["price"], data["trainings"], data["total_earnings"]))
+        conn.commit()
+        conn.close()
+        print(f"Дані клієнта {client_name} ({category}) збережено для user_id={user_id}")
+    except sqlite3.Error as e:
+        print(f"Помилка збереження даних клієнта: {e}")
+
+def calculate_monthly_earnings(user_id):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT category, total_earnings FROM client_data WHERE user_id = ?", (user_id,))
+        earnings = {"personal": 0, "group": 0}
+        for row in c.fetchall():
+            category, total_earnings = row
+            if category == "personal":
+                earnings["personal"] += total_earnings
+            elif category == "group":
+                earnings["group"] += total_earnings
+        conn.close()
+        return earnings
+    except sqlite3.Error as e:
+        print(f"Помилка підрахунку заробітку: {e}")
+        return {"personal": 0, "group": 0}
+
 # Обробники
 @router.message(Command("start"))
 async def handle_start(message: Message):
@@ -130,6 +191,7 @@ async def handle_start(message: Message):
             keyboard=[
                 [KeyboardButton(text="Додати клієнта")],
                 [KeyboardButton(text="Перегляд клієнтів")],
+                [KeyboardButton(text="Данні клієнтівℹ️")],
                 [KeyboardButton(text="Відкрити доступ для іншого тренера/юзера")],
             ],
             resize_keyboard=True
@@ -143,6 +205,7 @@ async def handle_start(message: Message):
             keyboard=[
                 [KeyboardButton(text="Додати клієнта")],
                 [KeyboardButton(text="Перегляд клієнтів")],
+                [KeyboardButton(text="Данні клієнтівℹ️")],
             ],
             resize_keyboard=True
         )
@@ -166,6 +229,7 @@ async def learn_more(message: Message):
             keyboard=[
                 [KeyboardButton(text="Додати клієнта")],
                 [KeyboardButton(text="Перегляд клієнтів")],
+                [KeyboardButton(text="Данні клієнтівℹ️")],
             ],
             resize_keyboard=True
         )
@@ -182,6 +246,16 @@ async def add_client(message: Message, state: FSMContext):
         return
     await message.answer("Введіть ім'я клієнта:")
     await state.set_state("add_client_name")
+
+@router.message(state="add_client_name")
+async def process_client_name(message: Message, state: FSMContext):
+    client_name = message.text.strip()
+    user_id = message.from_user.id
+    user_clients = load_clients(user_id)
+    user_clients[client_name] = {"trainings": 0, "contact": "", "profile": "", "archive": ""}
+    save_client(user_id, client_name, user_clients[client_name])
+    await message.answer(f"Клієнта {client_name} додано!")
+    await state.clear()
 
 @router.message(lambda message: message.text == "Перегляд клієнтів")
 async def view_clients(message: Message):
@@ -285,6 +359,10 @@ async def process_new_trainings(message: Message, state: FSMContext):
         await message.answer("Будь ласка, введіть додатне число!")
     await state.clear()
 
+@router.message(SetTrainings.new_trainings)
+async def process_new_trainings_invalid(message: Message, state: FSMContext):
+    await message.answer("Будь ласка, введіть число!")
+
 @router.callback_query(lambda c: c.data.startswith("delete_client_"))
 async def delete_client(callback: types.CallbackQuery):
     try:
@@ -347,41 +425,287 @@ async def update_code(message: Message):
     try:
         print(f"Завантажуємо код із {CODE_UPDATE_URL}")
         response = requests.get(CODE_UPDATE_URL)
+        response.raise_for_status()  # Перевіряємо, чи запит успішний
         if response.status_code != 200:
             await message.answer(f"Помилка завантаження коду: {response.status_code}")
             return
 
         new_code = response.text
 
-        # Зберігаємо тимчасовий файл
-        temp_file_path = "/data/bot_temp.py" if os.getenv("FLY_APP_NAME") else "bot_temp.py"
-        print(f"Зберігаємо тимчасовий файл у {temp_file_path}")
-        with open(temp_file_path, "w", encoding="utf-8") as f:
+        # Зберігаємо новий код у основний файл bot.py
+        bot_file_path = "bot.py"
+        print(f"Зберігаємо новий код у {bot_file_path}")
+        with open(bot_file_path, "w", encoding="utf-8") as f:
             f.write(new_code)
-
-        print("Починаємо перезавантаження модуля...")
-        if "bot" in sys.modules:
-            importlib.reload(sys.modules["bot"])
-            print("Модуль перезавантажено.")
-        else:
-            importlib.import_module("bot")
-            print("Модуль імпортовано.")
-
-        global router, dp
-        router = Router()
-        dp.include_router(router)
-
-        print("Реєструємо нові обробники...")
-        register_handlers()
-        print("Обробники зареєстровано.")
 
         await message.answer("Бот успішно оновлено! Зачекай кілька секунд і виконай /start для перевірки.")
         # Завершуємо процес, щоб Fly.io перезапустив бота
         print("Завершуємо процес для перезапуску...")
         os._exit(0)  # Примусово завершуємо процес
+    except requests.exceptions.RequestException as e:
+        print(f"Помилка при завантаженні коду: {e}")
+        await message.answer(f"Помилка при завантаженні коду: {str(e)}")
     except Exception as e:
         print(f"Помилка при оновленні: {str(e)}")
         await message.answer(f"Помилка при оновленні: {str(e)}")
+
+# Новий розділ "Данні клієнтівℹ️"
+@router.message(lambda message: message.text == "Данні клієнтівℹ️")
+async def client_data_menu(message: Message):
+    user_id = message.from_user.id
+    members = load_members()
+    if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
+        await message.answer("Ви не маєте прав для цієї дії!")
+        return
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Додати тренування", callback_data=f"add_client_data_{user_id}")],
+        [InlineKeyboardButton(text="Переглянути персональні", callback_data=f"view_personal_{user_id}")],
+        [InlineKeyboardButton(text="Переглянути групові", callback_data=f"view_group_{user_id}")],
+        [InlineKeyboardButton(text="Підсумок за місяць", callback_data=f"monthly_earnings_{user_id}")]
+    ])
+    await message.answer("Розділ 'Данні клієнтівℹ️':", reply_markup=keyboard)
+
+@router.callback_query(lambda c: c.data.startswith("add_client_data_"))
+async def add_client_data(callback: types.CallbackQuery, state: FSMContext):
+    user_id = int(callback.data.split("_")[3])
+    members = load_members()
+    if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
+        await callback.answer("Ви не маєте прав для цієї дії!", show_alert=True)
+        return
+
+    await state.update_data(user_id=user_id)
+    await state.set_state(AddClientData.name)
+    await callback.message.edit_text("Введіть ім'я клієнта:", reply_markup=None)
+    await callback.answer()
+
+@router.message(AddClientData.name)
+async def process_client_data_name(message: Message, state: FSMContext):
+    client_name = message.text.strip()
+    await state.update_data(name=client_name)
+    await state.set_state(AddClientData.price)
+    await message.answer("Введіть ціну за одне тренування (у грн, наприклад, 400):")
+
+@router.message(AddClientData.price, lambda message: message.text.isdigit())
+async def process_client_data_price(message: Message, state: FSMContext):
+    price = int(message.text)
+    if price <= 0:
+        await message.answer("Ціна має бути додатним числом!")
+        return
+    await state.update_data(price=price)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Персональні", callback_data="category_personal")],
+        [InlineKeyboardButton(text="Групові", callback_data="category_group")]
+    ])
+    await state.set_state(AddClientData.category)
+    await message.answer("Оберіть категорію:", reply_markup=keyboard)
+
+@router.callback_query(lambda c: c.data.startswith("category_"))
+async def process_client_data_category(callback: types.CallbackQuery, state: FSMContext):
+    category = callback.data.split("_")[1]
+    data = await state.get_data()
+    user_id = data["user_id"]
+    client_name = data["name"]
+    price = data["price"]
+
+    client_data = load_client_data(user_id)
+    if client_name not in client_data:
+        client_data[client_name] = {}
+    client_data[client_name][category] = {
+        "price": price,
+        "trainings": 0,
+        "total_earnings": 0
+    }
+    save_client_data(user_id, client_name, category, client_data[client_name][category])
+    await callback.message.edit_text(f"Клієнт {client_name} додано до категорії '{category}' з ціною {price} грн.")
+    await state.clear()
+    await callback.answer()
+
+@router.callback_query(lambda c: c.data.startswith("view_personal_"))
+async def view_personal_trainings(callback: types.CallbackQuery):
+    user_id = int(callback.data.split("_")[2])
+    members = load_members()
+    if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
+        await callback.answer("Ви не маєте прав для цієї дії!", show_alert=True)
+        return
+
+    client_data = load_client_data(user_id)
+    if not client_data:
+        await callback.message.edit_text("Немає даних про клієнтів.")
+        return
+
+    found = False
+    for client_name, categories in client_data.items():
+        if "personal" in categories:
+            found = True
+            data = categories["personal"]
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ -1", callback_data=f"decrease_training_{user_id}_{urllib.parse.quote(client_name)}_personal"),
+                 InlineKeyboardButton(text="➡️ +1", callback_data=f"increase_training_{user_id}_{urllib.parse.quote(client_name)}_personal")],
+                [InlineKeyboardButton(text="🗑️ Видалити", callback_data=f"delete_client_data_{user_id}_{urllib.parse.quote(client_name)}_personal")]
+            ])
+            await callback.message.answer(
+                f"Клієнт: {client_name}\nКатегорія: Персональні\nТренувань: {data['trainings']}\nЦіна за тренування: {data['price']} грн\nЗагальний заробіток: {data['total_earnings']} грн",
+                reply_markup=keyboard
+            )
+    if not found:
+        await callback.message.edit_text("Немає персональних тренувань.")
+    else:
+        await callback.message.delete()
+    await callback.answer()
+
+@router.callback_query(lambda c: c.data.startswith("view_group_"))
+async def view_group_trainings(callback: types.CallbackQuery):
+    user_id = int(callback.data.split("_")[2])
+    members = load_members()
+    if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
+        await callback.answer("Ви не маєте прав для цієї дії!", show_alert=True)
+        return
+
+    client_data = load_client_data(user_id)
+    if not client_data:
+        await callback.message.edit_text("Немає даних про клієнтів.")
+        return
+
+    found = False
+    for client_name, categories in client_data.items():
+        if "group" in categories:
+            found = True
+            data = categories["group"]
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ -1", callback_data=f"decrease_training_{user_id}_{urllib.parse.quote(client_name)}_group"),
+                 InlineKeyboardButton(text="➡️ +1", callback_data=f"increase_training_{user_id}_{urllib.parse.quote(client_name)}_group")],
+                [InlineKeyboardButton(text="🗑️ Видалити", callback_data=f"delete_client_data_{user_id}_{urllib.parse.quote(client_name)}_group")]
+            ])
+            await callback.message.answer(
+                f"Клієнт: {client_name}\nКатегорія: Групові\nТренувань: {data['trainings']}\nЦіна за тренування: {data['price']} грн\nЗагальний заробіток: {data['total_earnings']} грн",
+                reply_markup=keyboard
+            )
+    if not found:
+        await callback.message.edit_text("Немає групових тренувань.")
+    else:
+        await callback.message.delete()
+    await callback.answer()
+
+@router.callback_query(lambda c: c.data.startswith("increase_training_"))
+async def increase_training(callback: types.CallbackQuery):
+    try:
+        parts = callback.data.split("_", 3)
+        user_id = int(parts[2])
+        client_name = urllib.parse.unquote(parts[3])
+        category = parts[4]
+    except (ValueError, IndexError) as e:
+        print(f"Помилка при розборі callback.data: {e}")
+        await callback.answer("Помилка обробки запиту. Спробуй ще раз.", show_alert=True)
+        return
+
+    members = load_members()
+    if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
+        await callback.answer("Ви не маєте прав для цієї дії!", show_alert=True)
+        return
+
+    client_data = load_client_data(user_id)
+    if client_name not in client_data or category not in client_data[client_name]:
+        await callback.answer("Клієнта не знайдено!")
+        return
+
+    data = client_data[client_name][category]
+    data["trainings"] += 1
+    data["total_earnings"] = data["trainings"] * data["price"]
+    save_client_data(user_id, client_name, category, data)
+    await callback.message.edit_text(
+        f"Клієнт: {client_name}\nКатегорія: {category}\nТренувань: {data['trainings']}\nЦіна за тренування: {data['price']} грн\nЗагальний заробіток: {data['total_earnings']} грн",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ -1", callback_data=f"decrease_training_{user_id}_{urllib.parse.quote(client_name)}_{category}"),
+             InlineKeyboardButton(text="➡️ +1", callback_data=f"increase_training_{user_id}_{urllib.parse.quote(client_name)}_{category}")],
+            [InlineKeyboardButton(text="🗑️ Видалити", callback_data=f"delete_client_data_{user_id}_{urllib.parse.quote(client_name)}_{category}")]
+        ])
+    )
+    await callback.answer()
+
+@router.callback_query(lambda c: c.data.startswith("decrease_training_"))
+async def decrease_training(callback: types.CallbackQuery):
+    try:
+        parts = callback.data.split("_", 3)
+        user_id = int(parts[2])
+        client_name = urllib.parse.unquote(parts[3])
+        category = parts[4]
+    except (ValueError, IndexError) as e:
+        print(f"Помилка при розборі callback.data: {e}")
+        await callback.answer("Помилка обробки запиту. Спробуй ще раз.", show_alert=True)
+        return
+
+    members = load_members()
+    if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
+        await callback.answer("Ви не маєте прав для цієї дії!", show_alert=True)
+        return
+
+    client_data = load_client_data(user_id)
+    if client_name not in client_data or category not in client_data[client_name]:
+        await callback.answer("Клієнта не знайдено!")
+        return
+
+    data = client_data[client_name][category]
+    if data["trainings"] <= 0:
+        await callback.answer("Кількість тренувань не може бути меншою за 0!")
+        return
+
+    data["trainings"] -= 1
+    data["total_earnings"] = data["trainings"] * data["price"]
+    save_client_data(user_id, client_name, category, data)
+    await callback.message.edit_text(
+        f"Клієнт: {client_name}\nКатегорія: {category}\nТренувань: {data['trainings']}\nЦіна за тренування: {data['price']} грн\nЗагальний заробіток: {data['total_earnings']} грн",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ -1", callback_data=f"decrease_training_{user_id}_{urllib.parse.quote(client_name)}_{category}"),
+             InlineKeyboardButton(text="➡️ +1", callback_data=f"increase_training_{user_id}_{urllib.parse.quote(client_name)}_{category}")],
+            [InlineKeyboardButton(text="🗑️ Видалити", callback_data=f"delete_client_data_{user_id}_{urllib.parse.quote(client_name)}_{category}")]
+        ])
+    )
+    await callback.answer()
+
+@router.callback_query(lambda c: c.data.startswith("delete_client_data_"))
+async def delete_client_data(callback: types.CallbackQuery):
+    try:
+        parts = callback.data.split("_", 3)
+        user_id = int(parts[2])
+        client_name = urllib.parse.unquote(parts[3])
+        category = parts[4]
+    except (ValueError, IndexError) as e:
+        print(f"Помилка при розборі callback.data: {e}")
+        await callback.answer("Помилка обробки запиту. Спробуй ще раз.", show_alert=True)
+        return
+
+    members = load_members()
+    if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
+        await callback.answer("Ви не маєте прав для цієї дії!", show_alert=True)
+        return
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("DELETE FROM client_data WHERE user_id = ? AND client_name = ? AND category = ?", (user_id, client_name, category))
+        conn.commit()
+        conn.close()
+        await callback.message.delete()
+        await callback.answer(f"Дані клієнта {client_name} ({category}) видалено.")
+    except sqlite3.Error as e:
+        print(f"Помилка видалення даних клієнта: {e}")
+        await callback.answer("Помилка при видаленні даних.", show_alert=True)
+
+@router.callback_query(lambda c: c.data.startswith("monthly_earnings_"))
+async def monthly_earnings(callback: types.CallbackQuery):
+    user_id = int(callback.data.split("_")[2])
+    members = load_members()
+    if user_id not in ALLOWED_USERS and (user_id not in members or members[user_id].get("role") != "trainer"):
+        await callback.answer("Ви не маєте прав для цієї дії!", show_alert=True)
+        return
+
+    earnings = calculate_monthly_earnings(user_id)
+    total = earnings["personal"] + earnings["group"]
+    await callback.message.edit_text(
+        f"Підсумок за місяць:\nПерсональні тренування: {earnings['personal']} грн\nГрупові тренування: {earnings['group']} грн\nЗагальний заробіток: {total} грн"
+    )
+    await callback.answer()
 
 # Реєстрація обробників
 def register_handlers():
