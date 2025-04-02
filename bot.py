@@ -18,7 +18,7 @@ from fastapi import FastAPI
 TOKEN = "8097225217:AAERSuN5K68msP6JZzpSG9NR7XiDTeXBH6Y"  # Перевір, чи це твій токен
 ADMIN_ID = 385298897  # Перевір, чи це твій Telegram ID
 ALLOWED_USERS = [385298897, 666567798]  # Дозволені користувачі
-CODE_UPDATE_URL = "https://raw.githubusercontent.com/bohdan123/telegram-bot-code/main/bot.py"  # Перевір, чи це правильний URL твого репозиторію
+CODE_UPDATE_URL = "https://raw.githubusercontent.com/NeoroBob25/telegram-bot-code/refs/heads/main/bot.py"  # Перевір, чи це правильний URL твого репозиторію
 
 # Шлях до бази даних
 DB_PATH = "/data/bot.db" if os.getenv("FLY_APP_NAME") else "bot.db"
