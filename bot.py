@@ -6,7 +6,7 @@ import urllib.parse
 import asyncio
 import requests
 from aiogram import Bot, Dispatcher, Router, types
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -256,7 +256,7 @@ async def add_client(message: Message, state: FSMContext):
     await message.answer("Введіть ім'я клієнта:")
     await state.set_state("add_client_name")
 
-@router.message(state="add_client_name")
+@router.message(StateFilter("add_client_name"))
 async def process_client_name(message: Message, state: FSMContext):
     client_name = message.text.strip()
     user_id = message.from_user.id
@@ -349,7 +349,7 @@ async def set_trainings(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(f"Введіть нову кількість тренувань для {name} (число):", reply_markup=None)
     await callback.answer()
 
-@router.message(SetTrainings.new_trainings, lambda message: message.text.isdigit())
+@router.message(StateFilter(SetTrainings.new_trainings), lambda message: message.text.isdigit())
 async def process_new_trainings(message: Message, state: FSMContext):
     print(f"Отримано повідомлення в стані SetTrainings.new_trainings: {message.text}")
     data = await state.get_data()
@@ -368,7 +368,7 @@ async def process_new_trainings(message: Message, state: FSMContext):
         await message.answer("Будь ласка, введіть додатне число!")
     await state.clear()
 
-@router.message(SetTrainings.new_trainings)
+@router.message(StateFilter(SetTrainings.new_trainings))
 async def process_new_trainings_invalid(message: Message, state: FSMContext):
     await message.answer("Будь ласка, введіть число!")
 
@@ -488,14 +488,14 @@ async def add_client_data(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Введіть ім'я клієнта:", reply_markup=None)
     await callback.answer()
 
-@router.message(AddClientData.name)
+@router.message(StateFilter(AddClientData.name))
 async def process_client_data_name(message: Message, state: FSMContext):
     client_name = message.text.strip()
     await state.update_data(name=client_name)
     await state.set_state(AddClientData.price)
     await message.answer("Введіть ціну за одне тренування (у грн, наприклад, 400):")
 
-@router.message(AddClientData.price, lambda message: message.text.isdigit())
+@router.message(StateFilter(AddClientData.price), lambda message: message.text.isdigit())
 async def process_client_data_price(message: Message, state: FSMContext):
     price = int(message.text)
     if price <= 0:
