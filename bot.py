@@ -723,6 +723,7 @@ def register_handlers():
     # Додай інші обробники, якщо потрібно
 
 # Головна функція
+# Головна функція
 async def main():
     print("Починаємо ініціалізацію бота...")
     dp.include_router(router)
@@ -733,16 +734,24 @@ async def main():
     except Exception as e:
         print(f"Помилка при видаленні вебхука: {e}")
         raise
+
+    # Запускаємо полінг у фоновому режимі
     print("Запускаємо polling у фоновому режимі...")
-    asyncio.create_task(dp.start_polling(bot))
+    polling_task = asyncio.create_task(dp.start_polling(bot))
     print("Polling запущено.")
+
+    # Запускаємо FastAPI-сервер
+    print("Запускаємо FastAPI-сервер...")
+    config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+    # Чекаємо завершення полінгу (хоча це не має статися, якщо сервер працює)
+    await polling_task
 
 if __name__ == "__main__":
     print("Запускаємо бота...")
     try:
-        # Запускаємо FastAPI-сервер на порту 8080
-        config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_level="info")
-        server = uvicorn.Server(config)
-        asyncio.run(server.serve())
+        asyncio.run(main())
     except Exception as e:
         print(f"Помилка при запуску бота: {e}")
