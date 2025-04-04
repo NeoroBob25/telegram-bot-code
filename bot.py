@@ -4,6 +4,7 @@ import asyncio
 import logging
 import sys
 import requests
+import pyperclip  # Додаємо бібліотеку для роботи з буфером обміну
 from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -36,7 +37,6 @@ class ClientStates(StatesGroup):
     add_client_name = State()
     add_client_trainings = State()
     add_client_contact = State()
-    delete_client = State()
     change_trainings = State()
     change_trainings_count = State()
     client_info_age = State()
@@ -95,7 +95,6 @@ async def handle_start(message: Message):
             keyboard=[
                 [KeyboardButton(text="Додати клієнта")],
                 [KeyboardButton(text="Перегляд клієнтів")],
-                [KeyboardButton(text="Видалити клієнта")],
                 [KeyboardButton(text="📝Змінити кількість тренувань")],
             ],
             resize_keyboard=True
@@ -167,7 +166,12 @@ async def view_clients(message: Message):
     response = "Список твоїх клієнтів:\n\n"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[])
     for client_name, client_data in user_clients.items():
-        response += f"{client_name} | Тренувань: {client_data['trainings']}\n"
+        contact = client_data["contact"]
+        if contact.startswith("@"):
+            contact = f"[{contact}](tg://user?id={contact})"
+        else:
+            contact = f"📞 {contact}"
+        response += f"👤 {client_name} | 🏋️‍♂️ Тренування: {client_data['trainings']} | {contact}\n"
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(text="⬅️", callback_data=f"minus_{client_name}"),
             InlineKeyboardButton(text=f"{client_data['trainings']}", callback_data="noop"),
@@ -175,7 +179,7 @@ async def view_clients(message: Message):
             InlineKeyboardButton(text="🗑", callback_data=f"delete_{client_name}"),
             InlineKeyboardButton(text="ℹ️", callback_data=f"info_{client_name}")
         ])
-    await message.answer(response, reply_markup=keyboard)
+    await message.answer(response, reply_markup=keyboard, parse_mode="Markdown")
 
 # Обробник кнопок "⬅️" і "➡️"
 @router.callback_query(F.data.startswith("minus_"))
@@ -193,17 +197,35 @@ async def minus_training(callback: types.CallbackQuery, state: FSMContext):
         contact = user_clients[client_name]["contact"]
         if contact:
             msg = f"Твій тренер повідомляє: Кількість твоїх тренувань змінено: {change:+d}. Поточна кількість: {new_trainings} ✅"
-            await state.update_data(client_name=client_name, message_text=msg, change=change, new_trainings=new_trainings)
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Відправити", callback_data="send_notification")]
-            ])
-            await callback.message.answer(f"Повідомлення для {client_name}:\n{msg}", reply_markup=keyboard)
+            try:
+                # Копіюємо повідомлення в буфер обміну
+                pyperclip.copy(msg)
+                # Перенаправляємо в чат із клієнтом
+                if contact.startswith("@"):
+                    chat = await bot.get_chat(contact)
+                    await callback.message.answer(
+                        f"Повідомлення скопійовано в буфер обміну:\n{msg}\n\n"
+                        f"Перейдіть у чат із клієнтом: [Чат із {client_name}](tg://user?id={chat.id})",
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await callback.message.answer(
+                        f"Повідомлення скопійовано в буфер обміну:\n{msg}\n\n"
+                        f"Відправте його клієнту через контакт: {contact}"
+                    )
+            except Exception as e:
+                await callback.message.answer(f"Не вдалося підготувати повідомлення: {e}")
 
         # Оновлення таблиці
         response = "Список твоїх клієнтів:\n\n"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
         for name, data in user_clients.items():
-            response += f"{name} | Тренувань: {data['trainings']}\n"
+            contact = data["contact"]
+            if contact.startswith("@"):
+                contact = f"[{contact}](tg://user?id={contact})"
+            else:
+                contact = f"📞 {contact}"
+            response += f"👤 {name} | 🏋️‍♂️ Тренування: {data['trainings']} | {contact}\n"
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(text="⬅️", callback_data=f"minus_{name}"),
                 InlineKeyboardButton(text=f"{data['trainings']}", callback_data="noop"),
@@ -211,7 +233,7 @@ async def minus_training(callback: types.CallbackQuery, state: FSMContext):
                 InlineKeyboardButton(text="🗑", callback_data=f"delete_{name}"),
                 InlineKeyboardButton(text="ℹ️", callback_data=f"info_{name}")
             ])
-        await callback.message.edit_text(response, reply_markup=keyboard)
+        await callback.message.edit_text(response, reply_markup=keyboard, parse_mode="Markdown")
     await callback.answer()
 
 @router.callback_query(F.data.startswith("plus_"))
@@ -229,17 +251,35 @@ async def plus_training(callback: types.CallbackQuery, state: FSMContext):
         contact = user_clients[client_name]["contact"]
         if contact:
             msg = f"Твій тренер повідомляє: Кількість твоїх тренувань змінено: {change:+d}. Поточна кількість: {new_trainings} ✅"
-            await state.update_data(client_name=client_name, message_text=msg, change=change, new_trainings=new_trainings)
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Відправити", callback_data="send_notification")]
-            ])
-            await callback.message.answer(f"Повідомлення для {client_name}:\n{msg}", reply_markup=keyboard)
+            try:
+                # Копіюємо повідомлення в буфер обміну
+                pyperclip.copy(msg)
+                # Перенаправляємо в чат із клієнтом
+                if contact.startswith("@"):
+                    chat = await bot.get_chat(contact)
+                    await callback.message.answer(
+                        f"Повідомлення скопійовано в буфер обміну:\n{msg}\n\n"
+                        f"Перейдіть у чат із клієнтом: [Чат із {client_name}](tg://user?id={chat.id})",
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await callback.message.answer(
+                        f"Повідомлення скопійовано в буфер обміну:\n{msg}\n\n"
+                        f"Відправте його клієнту через контакт: {contact}"
+                    )
+            except Exception as e:
+                await callback.message.answer(f"Не вдалося підготувати повідомлення: {e}")
 
         # Оновлення таблиці
         response = "Список твоїх клієнтів:\n\n"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
         for name, data in user_clients.items():
-            response += f"{name} | Тренувань: {data['trainings']}\n"
+            contact = data["contact"]
+            if contact.startswith("@"):
+                contact = f"[{contact}](tg://user?id={contact})"
+            else:
+                contact = f"📞 {contact}"
+            response += f"👤 {name} | 🏋️‍♂️ Тренування: {data['trainings']} | {contact}\n"
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(text="⬅️", callback_data=f"minus_{name}"),
                 InlineKeyboardButton(text=f"{data['trainings']}", callback_data="noop"),
@@ -247,29 +287,7 @@ async def plus_training(callback: types.CallbackQuery, state: FSMContext):
                 InlineKeyboardButton(text="🗑", callback_data=f"delete_{name}"),
                 InlineKeyboardButton(text="ℹ️", callback_data=f"info_{name}")
             ])
-        await callback.message.edit_text(response, reply_markup=keyboard)
-    await callback.answer()
-
-# Обробник відправки повідомлення
-@router.callback_query(F.data == "send_notification")
-async def send_notification(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    client_name = data["client_name"]
-    message_text = data["message_text"]
-    user_id = callback.from_user.id
-    user_clients = load_clients(user_id)
-    contact = user_clients[client_name]["contact"]
-
-    if contact and contact.startswith("@"):
-        try:
-            chat = await bot.get_chat(contact)
-            await bot.send_message(chat.id, message_text)
-            await callback.message.edit_text(f"Повідомлення для {client_name} відправлено!")
-        except Exception as e:
-            await callback.message.edit_text(f"Не вдалося надіслати повідомлення клієнту: {e}")
-    else:
-        await callback.message.edit_text("Контакт не підтримується для надсилання.")
-    await state.clear()
+        await callback.message.edit_text(response, reply_markup=keyboard, parse_mode="Markdown")
     await callback.answer()
 
 # Обробник кнопки "🗑"
@@ -288,7 +306,12 @@ async def delete_client_inline(callback: types.CallbackQuery):
         response = "Список твоїх клієнтів:\n\n"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
         for name, data in user_clients.items():
-            response += f"{name} | Тренувань: {data['trainings']}\n"
+            contact = data["contact"]
+            if contact.startswith("@"):
+                contact = f"[{contact}](tg://user?id={contact})"
+            else:
+                contact = f"📞 {contact}"
+            response += f"👤 {name} | 🏋️‍♂️ Тренування: {data['trainings']} | {contact}\n"
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(text="⬅️", callback_data=f"minus_{name}"),
                 InlineKeyboardButton(text=f"{data['trainings']}", callback_data="noop"),
@@ -296,7 +319,7 @@ async def delete_client_inline(callback: types.CallbackQuery):
                 InlineKeyboardButton(text="🗑", callback_data=f"delete_{name}"),
                 InlineKeyboardButton(text="ℹ️", callback_data=f"info_{name}")
             ])
-        await callback.message.edit_text(response, reply_markup=keyboard)
+        await callback.message.edit_text(response, reply_markup=keyboard, parse_mode="Markdown")
         await callback.message.answer(f"Клієнта {client_name} видалено!")
     await callback.answer()
 
@@ -376,38 +399,6 @@ async def process_client_info_additional(message: Message, state: FSMContext):
     await message.answer(response)
     await state.clear()
 
-# Обробник "Видалити клієнта"
-@router.message(F.text == "Видалити клієнта")
-async def delete_client(message: Message, state: FSMContext):
-    if message.from_user.id not in ALLOWED_USERS:
-        await message.answer("У вас немає доступу до цієї функції.")
-        return
-    user_id = message.from_user.id
-    user_clients = load_clients(user_id)
-    if not user_clients:
-        await message.answer("Список клієнтів порожній.")
-        return
-    response = "Оберіть клієнта для видалення:\n"
-    for client_name in user_clients.keys():
-        response += f"- {client_name}\n"
-    await message.answer(response)
-    await state.set_state(ClientStates.delete_client)
-
-@router.message(StateFilter(ClientStates.delete_client))
-async def process_delete_client(message: Message, state: FSMContext):
-    client_name = message.text.strip()
-    user_id = message.from_user.id
-    user_clients = load_clients(user_id)
-    if client_name in user_clients:
-        del user_clients[client_name]
-        data = load_data()
-        data[str(user_id)] = user_clients
-        save_data(data)
-        await message.answer(f"Клієнта {client_name} видалено!")
-    else:
-        await message.answer("Такого клієнта не знайдено.")
-    await state.clear()
-
 # Обробник "📝Змінити кількість тренувань"
 @router.message(F.text == "📝Змінити кількість тренувань")
 async def change_trainings(message: Message, state: FSMContext):
@@ -457,11 +448,24 @@ async def process_change_trainings_count(message: Message, state: FSMContext):
         if contact:
             change = new_trainings - old_trainings
             msg = f"Твій тренер повідомляє: Кількість твоїх тренувань змінено: {change:+d}. Поточна кількість: {new_trainings} ✅"
-            await state.update_data(client_name=client_name, message_text=msg, change=change, new_trainings=new_trainings)
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Відправити", callback_data="send_notification")]
-            ])
-            await message.answer(f"Повідомлення для {client_name}:\n{msg}", reply_markup=keyboard)
+            try:
+                # Копіюємо повідомлення в буфер обміну
+                pyperclip.copy(msg)
+                # Перенаправляємо в чат із клієнтом
+                if contact.startswith("@"):
+                    chat = await bot.get_chat(contact)
+                    await message.answer(
+                        f"Повідомлення скопійовано в буфер обміну:\n{msg}\n\n"
+                        f"Перейдіть у чат із клієнтом: [Чат із {client_name}](tg://user?id={chat.id})",
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await message.answer(
+                        f"Повідомлення скопійовано в буфер обміну:\n{msg}\n\n"
+                        f"Відправте його клієнту через контакт: {contact}"
+                    )
+            except Exception as e:
+                await message.answer(f"Не вдалося підготувати повідомлення: {e}")
 
         await message.answer(f"Кількість тренувань для {client_name} змінено на {new_trainings}.")
         await state.clear()
