@@ -195,22 +195,21 @@ async def minus_training(callback: types.CallbackQuery, state: FSMContext):
         contact = user_clients[client_name]["contact"]
         if contact:
             msg = f"Твій тренер повідомляє: Кількість твоїх тренувань змінено: {change:+d}. Поточна кількість: {new_trainings} ✅"
-            try:
-                if contact.startswith("@"):
-                    chat = await bot.get_chat(contact)
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="Відправити клієнту", url=f"tg://msg?to={contact}&text={msg}")]
-                    ])
-                    await callback.message.answer(
-                        f"Натисніть кнопку, щоб відправити повідомлення:\n{msg}",
-                        reply_markup=keyboard
-                    )
-                else:
-                    await callback.message.answer(
-                        f"Скопіюйте повідомлення та відправте клієнту через контакт {contact}:\n{msg}"
-                    )
-            except Exception as e:
-                await callback.message.answer(f"Не вдалося підготувати повідомлення: {e}")
+            if contact.startswith("@"):
+                # Створюємо URL для відправки повідомлення
+                # Прибираємо символ @ з юзернейму для коректного URL
+                clean_contact = contact.lstrip("@")
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Відправити клієнту", url=f"https://t.me/{clean_contact}?text={msg}")]
+                ])
+                await callback.message.answer(
+                    f"Натисніть кнопку, щоб відправити повідомлення:\n{msg}",
+                    reply_markup=keyboard
+                )
+            else:
+                await callback.message.answer(
+                    f"Скопіюйте повідомлення та відправте клієнту через контакт {contact}:\n{msg}"
+                )
 
         # Оновлення таблиці
         response = "Список твоїх клієнтів:\n\n"
@@ -247,22 +246,21 @@ async def plus_training(callback: types.CallbackQuery, state: FSMContext):
         contact = user_clients[client_name]["contact"]
         if contact:
             msg = f"Твій тренер повідомляє: Кількість твоїх тренувань змінено: {change:+d}. Поточна кількість: {new_trainings} ✅"
-            try:
-                if contact.startswith("@"):
-                    chat = await bot.get_chat(contact)
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="Відправити клієнту", url=f"tg://msg?to={contact}&text={msg}")]
-                    ])
-                    await callback.message.answer(
-                        f"Натисніть кнопку, щоб відправити повідомлення:\n{msg}",
-                        reply_markup=keyboard
-                    )
-                else:
-                    await callback.message.answer(
-                        f"Скопіюйте повідомлення та відправте клієнту через контакт {contact}:\n{msg}"
-                    )
-            except Exception as e:
-                await callback.message.answer(f"Не вдалося підготувати повідомлення: {e}")
+            if contact.startswith("@"):
+                # Створюємо URL для відправки повідомлення
+                # Прибираємо символ @ з юзернейму для коректного URL
+                clean_contact = contact.lstrip("@")
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Відправити клієнту", url=f"https://t.me/{clean_contact}?text={msg}")]
+                ])
+                await callback.message.answer(
+                    f"Натисніть кнопку, щоб відправити повідомлення:\n{msg}",
+                    reply_markup=keyboard
+                )
+            else:
+                await callback.message.answer(
+                    f"Скопіюйте повідомлення та відправте клієнту через контакт {contact}:\n{msg}"
+                )
 
         # Оновлення таблиці
         response = "Список твоїх клієнтів:\n\n"
@@ -442,22 +440,20 @@ async def process_change_trainings_count(message: Message, state: FSMContext):
         if contact:
             change = new_trainings - old_trainings
             msg = f"Твій тренер повідомляє: Кількість твоїх тренувань змінено: {change:+d}. Поточна кількість: {new_trainings} ✅"
-            try:
-                if contact.startswith("@"):
-                    chat = await bot.get_chat(contact)
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="Відправити клієнту", url=f"tg://msg?to={contact}&text={msg}")]
-                    ])
-                    await message.answer(
-                        f"Натисніть кнопку, щоб відправити повідомлення:\n{msg}",
-                        reply_markup=keyboard
-                    )
-                else:
-                    await message.answer(
-                        f"Скопіюйте повідомлення та відправте клієнту через контакт {contact}:\n{msg}"
-                    )
-            except Exception as e:
-                await message.answer(f"Не вдалося підготувати повідомлення: {e}")
+            if contact.startswith("@"):
+                # Створюємо URL для відправки повідомлення
+                clean_contact = contact.lstrip("@")
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Відправити клієнту", url=f"https://t.me/{clean_contact}?text={msg}")]
+                ])
+                await message.answer(
+                    f"Натисніть кнопку, щоб відправити повідомлення:\n{msg}",
+                    reply_markup=keyboard
+                )
+            else:
+                await message.answer(
+                    f"Скопіюйте повідомлення та відправте клієнту через контакт {contact}:\n{msg}"
+                )
 
         await message.answer(f"Кількість тренувань для {client_name} змінено на {new_trainings}.")
         await state.clear()
