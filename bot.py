@@ -918,6 +918,9 @@ async def main():
                 raise Exception("Не вдалося видалити вебхук. Перевірте токен і налаштування Telegram.")
             await asyncio.sleep(1)
 
+    print("Реєструємо обробники...")
+    dp.include_router(router)  # Додаємо роутер до диспетчера
+
     print("Запускаємо polling у фоновому режимі...")
     polling_task = asyncio.create_task(dp.start_polling(bot))
     print("Polling запущено.")
