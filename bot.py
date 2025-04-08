@@ -20,7 +20,9 @@ logging.basicConfig(level=logging.INFO)
 app = FastAPI()
 
 # Ініціалізація бота
-TOKEN = "8097225217:AAERSuN5K68msP6JZzpSG9NR7XiDTeXBH6Y"
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+if not TOKEN:
+    raise ValueError("TELEGRAM_TOKEN не встановлено в змінних середовища!")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 router = Router()
@@ -916,61 +918,4 @@ async def update_bot(message: Message):
         response = "Код оновлено! Перезапускаю бота..."
         print(f"[UPDATE] Sending response: {response}")
         await message.answer(response)
-        print(f"[UPDATE] Response sent successfully to User ID: {message.from_user.id}")
-        
-        # Перезапускаємо бота
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-    except Exception as e:
-        response = f"Помилка при оновленні: {e}"
-        print(f"[UPDATE] Sending response: {response}")
-        await message.answer(response)
-        print(f"[UPDATE] Response sent successfully to User ID: {message.from_user.id}")
-
-# FastAPI ендпоінт
-@app.get("/")
-async def root():
-    return {"message": "Bot is running"}
-
-# Головна функція
-async def main():
-    print("Починаємо ініціалізацію бота...")
-    dp.include_router(router)
-    
-    # Перевірка статусу вебхука з кількома спробами
-    max_attempts = 3
-    for attempt in range(max_attempts):
-        try:
-            print(f"Перевіряємо статус вебхука (спроба {attempt + 1}/{max_attempts})...")
-            webhook_info = await bot.get_webhook_info()
-            if webhook_info.url:
-                print(f"Вебхук активний: {webhook_info.url}. Видаляємо...")
-                await bot.delete_webhook(drop_pending_updates=True)
-                print("Вебхук видалено успішно.")
-            else:
-                print("Вебхук не активний, продовжуємо...")
-                break
-        except Exception as e:
-            print(f"Помилка при перевірці/видаленні вебхука: {e}")
-            if attempt == max_attempts - 1:
-                print("Не вдалося видалити вебхук після кількох спроб. Зупиняємо бота.")
-                raise Exception("Не вдалося видалити вебхук. Перевірте токен і налаштування Telegram.")
-            await asyncio.sleep(2)  # Чекаємо перед наступною спробою
-
-    print("Запускаємо polling у фоновому режимі...")
-    polling_task = asyncio.create_task(dp.start_polling(bot))
-    print("Polling запущено.")
-
-    print("Запускаємо FastAPI-сервер...")
-    config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_level="info")
-    server = uvicorn.Server(config)
-    await server.serve()
-
-    await polling_task
-
-if __name__ == "__main__":
-    print("Запускаємо бота...")
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        print(f"Помилка при запуску бота: {e}")
-        raise
+        print(f"[UPDATE] Response sent successfully to User
