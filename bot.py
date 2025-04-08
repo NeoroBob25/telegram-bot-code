@@ -9,17 +9,14 @@ from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 import uvicorn
 from fastapi import FastAPI
 
-# Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
-# Ініціалізація FastAPI
 app = FastAPI()
 
-# Ініціалізація бота
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TOKEN:
     raise ValueError("TELEGRAM_TOKEN не встановлено в змінних середовища!")
@@ -27,14 +24,11 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Дозволені користувачі
 ALLOWED_USERS = [385298897, 666567798]
 
-# Шляхи до файлів
 DATA_PATH = "/data/data.json"
 MEMBERS_PATH = "/data/members.json"
 
-# Клас для станів
 class ClientStates(StatesGroup):
     add_client_name = State()
     add_client_trainings = State()
@@ -51,7 +45,6 @@ class ClientStates(StatesGroup):
     delete_client_info_select_date = State()
     add_new_client_info_date = State()
 
-# Функції для роботи з базою даних
 def load_data():
     try:
         with open(DATA_PATH, "r") as f:
@@ -87,9 +80,8 @@ def save_client(user_id, client_name, client_data):
     data[str(user_id)][client_name] = client_data
     save_data(data)
 
-# Обробник команди /start
 @router.message(Command("start"))
-async def handle_start(message: Message):
+async def handle_start(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or f"User_{user_id}"
     chat_id = message.chat.id
@@ -118,9 +110,8 @@ async def handle_start(message: Message):
         await message.answer(response)
         print(f"[START] Response sent successfully to User ID: {user_id}")
 
-# Обробник "Додати клієнта"
 @router.message(F.text == "Додати клієнта")
-async def add_client(message: Message, state: FSMContext):
+async def add_client(message: types.Message, state: FSMContext):
     if message.from_user.id not in ALLOWED_USERS:
         response = "У вас немає доступу до цієї функції."
         print(f"[ADD_CLIENT] Sending response: {response}")
@@ -134,7 +125,7 @@ async def add_client(message: Message, state: FSMContext):
     await state.set_state(ClientStates.add_client_name)
 
 @router.message(StateFilter(ClientStates.add_client_name))
-async def process_client_name(message: Message, state: FSMContext):
+async def process_client_name(message: types.Message, state: FSMContext):
     client_name = message.text.strip()
     await state.update_data(client_name=client_name)
     response = "Введіть кількість тренувань:"
@@ -144,7 +135,7 @@ async def process_client_name(message: Message, state: FSMContext):
     await state.set_state(ClientStates.add_client_trainings)
 
 @router.message(StateFilter(ClientStates.add_client_trainings))
-async def process_client_trainings(message: Message, state: FSMContext):
+async def process_client_trainings(message: types.Message, state: FSMContext):
     try:
         trainings = int(message.text.strip())
         await state.update_data(trainings=trainings)
@@ -160,7 +151,7 @@ async def process_client_trainings(message: Message, state: FSMContext):
         print(f"[PROCESS_CLIENT_TRAININGS] Response sent successfully to User ID: {message.from_user.id}")
 
 @router.message(StateFilter(ClientStates.add_client_contact))
-async def process_client_contact(message: Message, state: FSMContext):
+async def process_client_contact(message: types.Message, state: FSMContext):
     contact = message.text.strip()
     data = await state.get_data()
     client_name = data["client_name"]
@@ -181,9 +172,8 @@ async def process_client_contact(message: Message, state: FSMContext):
     print(f"[PROCESS_CLIENT_CONTACT] Response sent successfully to User ID: {user_id}")
     await state.clear()
 
-# Обробник "Перегляд клієнтів"
 @router.message(F.text == "Перегляд клієнтів")
-async def view_clients(message: Message):
+async def view_clients(message: types.Message):
     if message.from_user.id not in ALLOWED_USERS:
         response = "У вас немає доступу до цієї функції."
         print(f"[VIEW_CLIENTS] Sending response: {response}")
@@ -220,7 +210,6 @@ async def view_clients(message: Message):
     await message.answer(response, reply_markup=keyboard, parse_mode="Markdown")
     print(f"[VIEW_CLIENTS] Response sent successfully to User ID: {user_id}")
 
-# Обробник кнопок "⬅️" і "➡️"
 @router.callback_query(F.data.startswith("minus_"))
 async def minus_training(callback: types.CallbackQuery, state: FSMContext):
     client_name = callback.data.split("_")[1]
@@ -232,7 +221,6 @@ async def minus_training(callback: types.CallbackQuery, state: FSMContext):
         new_trainings = user_clients[client_name]["trainings"]
         save_client(user_id, client_name, user_clients[client_name])
 
-        # Підготовка повідомлення для клієнта
         contact = user_clients[client_name]["contact"]
         if contact:
             msg = f"Твій тренер повідомляє: Кількість твоїх тренувань змінено: {change:+d}. Поточна кількість: {new_trainings} ✅"
@@ -251,7 +239,6 @@ async def minus_training(callback: types.CallbackQuery, state: FSMContext):
                 await callback.message.answer(response)
                 print(f"[MINUS_TRAINING] Response sent successfully to User ID: {user_id}")
 
-        # Оновлення таблиці
         response = "Список твоїх клієнтів:\n\n"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
         for name, data in user_clients.items():
@@ -285,7 +272,6 @@ async def plus_training(callback: types.CallbackQuery, state: FSMContext):
         new_trainings = user_clients[client_name]["trainings"]
         save_client(user_id, client_name, user_clients[client_name])
 
-        # Підготовка повідомлення для клієнта
         contact = user_clients[client_name]["contact"]
         if contact:
             msg = f"Твій тренер повідомляє: Кількість твоїх тренувань змінено: {change:+d}. Поточна кількість: {new_trainings} ✅"
@@ -304,7 +290,6 @@ async def plus_training(callback: types.CallbackQuery, state: FSMContext):
                 await callback.message.answer(response)
                 print(f"[PLUS_TRAINING] Response sent successfully to User ID: {user_id}")
 
-        # Оновлення таблиці
         response = "Список твоїх клієнтів:\n\n"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
         for name, data in user_clients.items():
@@ -327,7 +312,6 @@ async def plus_training(callback: types.CallbackQuery, state: FSMContext):
         print(f"[PLUS_TRAINING] Table updated successfully for User ID: {user_id}")
     await callback.answer()
 
-# Обробник кнопки "📝" у таблиці
 @router.callback_query(F.data.startswith("change_"))
 async def change_trainings_inline(callback: types.CallbackQuery, state: FSMContext):
     client_name = callback.data.split("_")[1]
@@ -343,7 +327,7 @@ async def change_trainings_inline(callback: types.CallbackQuery, state: FSMConte
     await callback.answer()
 
 @router.message(StateFilter(ClientStates.change_trainings_count))
-async def process_change_trainings_count(message: Message, state: FSMContext):
+async def process_change_trainings_count(message: types.Message, state: FSMContext):
     try:
         new_trainings = int(message.text.strip())
         data = await state.get_data()
@@ -355,7 +339,6 @@ async def process_change_trainings_count(message: Message, state: FSMContext):
         user_clients[client_name]["trainings"] = new_trainings
         save_client(user_id, client_name, user_clients[client_name])
 
-        # Підготовка повідомлення для клієнта
         contact = user_clients[client_name]["contact"]
         if contact:
             change = new_trainings - old_trainings
@@ -380,7 +363,6 @@ async def process_change_trainings_count(message: Message, state: FSMContext):
         await message.answer(response)
         print(f"[PROCESS_CHANGE_TRAININGS_COUNT] Response sent successfully to User ID: {user_id}")
 
-        # Оновлення таблиці
         response = "Список твоїх клієнтів:\n\n"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
         for name, data in user_clients.items():
@@ -408,7 +390,6 @@ async def process_change_trainings_count(message: Message, state: FSMContext):
         await message.answer(response)
         print(f"[PROCESS_CHANGE_TRAININGS_COUNT] Response sent successfully to User ID: {user_id}")
 
-# Обробник кнопки "🗑"
 @router.callback_query(F.data.startswith("delete_"))
 async def delete_client_inline(callback: types.CallbackQuery):
     client_name = callback.data.split("_")[1]
@@ -420,7 +401,6 @@ async def delete_client_inline(callback: types.CallbackQuery):
         data[str(user_id)] = user_clients
         save_data(data)
 
-        # Оновлення таблиці
         response = "Список твоїх клієнтів:\n\n"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
         for name, data in user_clients.items():
@@ -447,7 +427,6 @@ async def delete_client_inline(callback: types.CallbackQuery):
         print(f"[DELETE_CLIENT] Response sent successfully to User ID: {user_id}")
     await callback.answer()
 
-# Обробник кнопки "ℹ️"
 @router.callback_query(F.data.startswith("info_"))
 async def client_info(callback: types.CallbackQuery, state: FSMContext):
     client_name = callback.data.split("_")[1]
@@ -463,7 +442,7 @@ async def client_info(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.message(StateFilter(ClientStates.client_info_date))
-async def process_client_info_date(message: Message, state: FSMContext):
+async def process_client_info_date(message: types.Message, state: FSMContext):
     date_input = message.text.strip()
     if date_input:
         try:
@@ -485,7 +464,7 @@ async def process_client_info_date(message: Message, state: FSMContext):
     await state.set_state(ClientStates.client_info_age)
 
 @router.message(StateFilter(ClientStates.client_info_age))
-async def process_client_info_age(message: Message, state: FSMContext):
+async def process_client_info_age(message: types.Message, state: FSMContext):
     age = message.text.strip()
     await state.update_data(age=age)
     response = "Введіть вагу клієнта (кг):"
@@ -495,7 +474,7 @@ async def process_client_info_age(message: Message, state: FSMContext):
     await state.set_state(ClientStates.client_info_weight)
 
 @router.message(StateFilter(ClientStates.client_info_weight))
-async def process_client_info_weight(message: Message, state: FSMContext):
+async def process_client_info_weight(message: types.Message, state: FSMContext):
     weight = message.text.strip()
     await state.update_data(weight=weight)
     response = "Введіть результати клієнта (наприклад, прогрес у вправах, заміри тіла):"
@@ -505,7 +484,7 @@ async def process_client_info_weight(message: Message, state: FSMContext):
     await state.set_state(ClientStates.client_info_results)
 
 @router.message(StateFilter(ClientStates.client_info_results))
-async def process_client_info_results(message: Message, state: FSMContext):
+async def process_client_info_results(message: types.Message, state: FSMContext):
     results = message.text.strip()
     await state.update_data(results=results)
     response = "Введіть додаткову інформацію (якщо є):"
@@ -515,7 +494,7 @@ async def process_client_info_results(message: Message, state: FSMContext):
     await state.set_state(ClientStates.client_info_additional)
 
 @router.message(StateFilter(ClientStates.client_info_additional))
-async def process_client_info_additional(message: Message, state: FSMContext):
+async def process_client_info_additional(message: types.Message, state: FSMContext):
     additional = message.text.strip()
     data = await state.get_data()
     client_name = data["client_name"]
@@ -523,7 +502,6 @@ async def process_client_info_additional(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user_clients = load_clients(user_id)
 
-    # Формуємо профіль
     profile = {
         "date": selected_date,
         "age": data["age"],
@@ -532,11 +510,9 @@ async def process_client_info_additional(message: Message, state: FSMContext):
         "additional": additional
     }
 
-    # Зберігаємо профіль у списку profiles
     if "profiles" not in user_clients[client_name]:
         user_clients[client_name]["profiles"] = []
     
-    # Перевіряємо, чи є профіль із такою датою
     for i, existing_profile in enumerate(user_clients[client_name]["profiles"]):
         if existing_profile["date"] == selected_date:
             user_clients[client_name]["profiles"][i] = profile
@@ -544,12 +520,9 @@ async def process_client_info_additional(message: Message, state: FSMContext):
     else:
         user_clients[client_name]["profiles"].append(profile)
 
-    # Сортуємо профілі за датою
     user_clients[client_name]["profiles"].sort(key=lambda x: x["date"])
-
     save_client(user_id, client_name, user_clients[client_name])
 
-    # Показуємо анкету та пропонуємо дії
     response = f"Анкета клієнта {client_name} за {selected_date}:\n"
     response += f"Вік: {profile['age']}\n"
     response += f"Вага: {profile['weight']} кг\n"
@@ -569,7 +542,6 @@ async def process_client_info_additional(message: Message, state: FSMContext):
     print(f"[PROCESS_CLIENT_INFO_ADDITIONAL] Response sent successfully to User ID: {user_id}")
     await state.clear()
 
-# Обробник кнопки "Зберегти"
 @router.callback_query(F.data.startswith("save_info_"))
 async def save_client_info(callback: types.CallbackQuery):
     _, client_name, selected_date = callback.data.split("_", 2)
@@ -580,7 +552,6 @@ async def save_client_info(callback: types.CallbackQuery):
     print(f"[SAVE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
     await callback.answer()
 
-# Обробник кнопки "Редагувати"
 @router.callback_query(F.data.startswith("edit_info_"))
 async def edit_client_info(callback: types.CallbackQuery, state: FSMContext):
     _, client_name, selected_date = callback.data.split("_", 2)
@@ -601,7 +572,7 @@ async def edit_client_info(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.message(StateFilter(ClientStates.edit_client_info_field))
-async def process_edit_client_info_field(message: Message, state: FSMContext):
+async def process_edit_client_info_field(message: types.Message, state: FSMContext):
     field = message.text.strip().lower()
     data = await state.get_data()
     client_name = data["client_name"]
@@ -622,7 +593,7 @@ async def process_edit_client_info_field(message: Message, state: FSMContext):
     await state.set_state(ClientStates.edit_client_info_select_date)
 
 @router.message(StateFilter(ClientStates.edit_client_info_select_date))
-async def process_edit_client_info_value(message: Message, state: FSMContext):
+async def process_edit_client_info_value(message: types.Message, state: FSMContext):
     new_value = message.text.strip()
     data = await state.get_data()
     client_name = data["client_name"]
@@ -665,7 +636,6 @@ async def process_edit_client_info_value(message: Message, state: FSMContext):
     print(f"[PROCESS_EDIT_CLIENT_INFO_VALUE] Response sent successfully to User ID: {user_id}")
     await state.clear()
 
-# Обробник кнопки "Видалити"
 @router.callback_query(F.data.startswith("delete_info_"))
 async def delete_client_info(callback: types.CallbackQuery):
     _, client_name, selected_date = callback.data.split("_", 2)
@@ -682,7 +652,6 @@ async def delete_client_info(callback: types.CallbackQuery):
     print(f"[DELETE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
     await callback.answer()
 
-# Обробник кнопки "Додати нову інформацію"
 @router.callback_query(F.data.startswith("add_new_info_"))
 async def add_new_client_info(callback: types.CallbackQuery, state: FSMContext):
     client_name = callback.data.split("_", 3)[3]
@@ -698,7 +667,7 @@ async def add_new_client_info(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.message(StateFilter(ClientStates.add_new_client_info_date))
-async def process_add_new_client_info_date(message: Message, state: FSMContext):
+async def process_add_new_client_info_date(message: types.Message, state: FSMContext):
     date_input = message.text.strip()
     if date_input:
         try:
@@ -719,7 +688,6 @@ async def process_add_new_client_info_date(message: Message, state: FSMContext):
     print(f"[ADD_NEW_CLIENT_INFO_DATE] Response sent successfully to User ID: {message.from_user.id}")
     await state.set_state(ClientStates.client_info_age)
 
-# Обробник кнопки "Аналізувати результати"
 @router.callback_query(F.data.startswith("analyze_info_"))
 async def analyze_client_info(callback: types.CallbackQuery):
     client_name = callback.data.split("_", 2)[2]
@@ -735,17 +703,14 @@ async def analyze_client_info(callback: types.CallbackQuery):
         await callback.answer()
         return
 
-    # Аналіз за останні 7 днів
     one_week_ago = datetime.now().date() - timedelta(days=7)
     recent_profiles_week = [p for p in profiles if datetime.strptime(p["date"], "%Y-%m-%d").date() >= one_week_ago]
     
-    # Аналіз за останні 30 днів
     one_month_ago = datetime.now().date() - timedelta(days=30)
     recent_profiles_month = [p for p in profiles if datetime.strptime(p["date"], "%Y-%m-%d").date() >= one_month_ago]
 
     response = f"Аналіз результатів для {client_name}:\n\n"
 
-    # Аналіз за тиждень
     if recent_profiles_week:
         response += "📅 За останні 7 днів:\n"
         if len(recent_profiles_week) > 1:
@@ -762,7 +727,6 @@ async def analyze_client_info(callback: types.CallbackQuery):
     else:
         response += "📅 За останні 7 днів: даних немає.\n"
 
-    # Аналіз за місяць
     if recent_profiles_month:
         response += "\n📅 За останні 30 днів:\n"
         if len(recent_profiles_month) > 1:
@@ -784,9 +748,8 @@ async def analyze_client_info(callback: types.CallbackQuery):
     print(f"[ANALYZE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
     await callback.answer()
 
-# Обробник "📈 Відслідковування показників клієнтів"
 @router.message(F.text == "📈 Відслідковування показників клієнтів")
-async def track_client_progress(message: Message, state: FSMContext):
+async def track_client_progress(message: types.Message, state: FSMContext):
     if message.from_user.id not in ALLOWED_USERS:
         response = "У вас немає доступу до цієї функції."
         print(f"[TRACK_CLIENT_PROGRESS] Sending response: {response}")
@@ -811,7 +774,7 @@ async def track_client_progress(message: Message, state: FSMContext):
     await state.set_state(ClientStates.track_client_select)
 
 @router.message(StateFilter(ClientStates.track_client_select))
-async def process_track_client_select(message: Message, state: FSMContext):
+async def process_track_client_select(message: types.Message, state: FSMContext):
     client_name = message.text.strip()
     user_id = message.from_user.id
     user_clients = load_clients(user_id)
@@ -840,7 +803,6 @@ async def process_track_client_select(message: Message, state: FSMContext):
         response += f"Результати: {profile['results']}\n"
         response += f"Додатково: {profile['additional']}\n\n"
 
-    # Аналіз за тиждень і місяць
     one_week_ago = datetime.now().date() - timedelta(days=7)
     recent_profiles_week = [p for p in profiles if datetime.strptime(p["date"], "%Y-%m-%d").date() >= one_week_ago]
     one_month_ago = datetime.now().date() - timedelta(days=30)
@@ -885,22 +847,21 @@ async def process_track_client_select(message: Message, state: FSMContext):
     print(f"[PROCESS_TRACK_CLIENT_SELECT] Response sent successfully to User ID: {user_id}")
     await state.clear()
 
-# Обробник команди /update
 @router.message(Command("update"))
-async def update_bot(message: Message):
-    if message.from_user.id not in ALLOWED_USERS:
+async def update_bot(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in ALLOWED_USERS:
         response = "У вас немає доступу до цієї функції."
         print(f"[UPDATE] Sending response: {response}")
         await message.answer(response)
-        print(f"[UPDATE] Response sent successfully to User ID: {message.from_user.id}")
+        print(f"[UPDATE] Response sent successfully to User ID: {user_id}")
         return
 
     response = "Оновлення бота..."
     print(f"[UPDATE] Sending response: {response}")
     await message.answer(response)
-    print(f"[UPDATE] Response sent successfully to User ID: {message.from_user.id}")
+    print(f"[UPDATE] Response sent successfully to User ID: {user_id}")
 
-    # Завантажуємо новий код із GitHub
     url = "https://raw.githubusercontent.com/bohdan123/telegram-bot-code/main/bot.py"
     try:
         response = requests.get(url)
@@ -908,14 +869,72 @@ async def update_bot(message: Message):
             response = f"Помилка при завантаженні коду: {response.status_code} {response.reason}"
             print(f"[UPDATE] Sending response: {response}")
             await message.answer(response)
-            print(f"[UPDATE] Response sent successfully to User ID: {message.from_user.id}")
+            print(f"[UPDATE] Response sent successfully to User ID: {user_id}")
             return
 
-        # Зберігаємо новий код
         with open("/app/bot.py", "w") as f:
             f.write(response.text)
 
         response = "Код оновлено! Перезапускаю бота..."
         print(f"[UPDATE] Sending response: {response}")
         await message.answer(response)
-        print(f"[UPDATE] Response sent successfully to User
+        print(f"[UPDATE] Response sent successfully to User ID: {user_id}")
+
+        os._exit(0)
+    except Exception as e:
+        response = f"Помилка при оновленні: {e}"
+        print(f"[UPDATE] Sending response: {response}")
+        await message.answer(response)
+        print(f"[UPDATE] Response sent successfully to User ID: {user_id}")
+
+async def main():
+    print("Запускаємо бота...")
+    print("Починаємо ініціалізацію бота...")
+
+    try:
+        bot_info = await bot.get_me()
+        print(f"Бот успішно авторизований: {bot_info.username}")
+    except Exception as e:
+        print(f"Помилка авторизації: {e}")
+        raise Exception("Токен бота невалідний. Перевірте TELEGRAM_TOKEN у змінних середовища.")
+
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        print(f"Перевіряємо статус вебхука (спроба {attempt}/{max_attempts})...")
+        try:
+            webhook_info = await bot.get_webhook_info()
+            print(f"Статус вебхука: {webhook_info}")
+            if webhook_info.url:
+                print("Вебхук активний, видаляємо...")
+                await bot.delete_webhook(drop_pending_updates=True)
+                print("Вебхук успішно видалено.")
+            else:
+                print("Вебхук не активний, продовжуємо...")
+            break
+        except Exception as e:
+            print(f"Помилка при перевірці/видаленні вебхука: {e}")
+            if attempt == max_attempts:
+                print("Не вдалося видалити вебхук після кількох спроб. Зупиняємо бота.")
+                raise Exception("Не вдалося видалити вебхук. Перевірте токен і налаштування Telegram.")
+            await asyncio.sleep(1)
+
+    print("Запускаємо polling у фоновому режимі...")
+    polling_task = asyncio.create_task(dp.start_polling(bot))
+    print("Polling запущено.")
+
+    print("Запускаємо FastAPI-сервер...")
+    config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+    print("Зупиняємо polling...")
+    await dp.stop_polling()
+    await polling_task
+    print("Бот зупинено.")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"Помилка при запуску бота: {e}")
+        sys.exit(1)
