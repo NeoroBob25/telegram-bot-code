@@ -44,6 +44,7 @@ class ClientStates(StatesGroup):
     edit_client_info_field = State()
     delete_client_info_select_date = State()
     add_new_client_info_date = State()
+    confirm_continue_info = State()
 
 def load_data():
     try:
@@ -81,7 +82,7 @@ def save_client(user_id, client_name, client_data):
     save_data(data)
 
 @router.message(Command("start"))
-async def handle_start(message: types.Message):
+async def handle_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username or f"User_{user_id}"
     chat_id = message.chat.id
@@ -173,7 +174,7 @@ async def process_client_contact(message: types.Message, state: FSMContext):
     await state.clear()
 
 @router.message(F.text == "Перегляд клієнтів")
-async def view_clients(message: types.Message):
+async def view_clients(message: types.Message, state: FSMContext):
     if message.from_user.id not in ALLOWED_USERS:
         response = "У вас немає доступу до цієї функції."
         print(f"[VIEW_CLIENTS] Sending response: {response}")
@@ -433,12 +434,67 @@ async def client_info(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     user_clients = load_clients(user_id)
     if client_name in user_clients:
-        await state.update_data(client_name=client_name)
+        current_state = await state.get_state()
+        if current_state:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Так!", callback_data=f"continue_info_{client_name}")],
+                [InlineKeyboardButton(text="Ні", callback_data="cancel_to_main")],
+                [InlineKeyboardButton(text="Відмінити", callback_data="cancel_info")]
+            ])
+            response = "Ви вже почали заповнення анкети. Продовжувати заповнення?"
+            print(f"[CLIENT_INFO] Sending response: {response}")
+            await callback.message.answer(response, reply_markup=keyboard)
+            print(f"[CLIENT_INFO] Response sent successfully to User ID: {user_id}")
+            await state.set_state(ClientStates.confirm_continue_info)
+            await state.update_data(client_name=client_name)
+        else:
+            await state.update_data(client_name=client_name)
+            response = f"Введіть дату для анкети клієнта {client_name} (формат: РРРР-ММ-ДД, наприклад, 2025-04-06). Залиште порожнім для сьогоднішньої дати:"
+            print(f"[CLIENT_INFO] Sending response: {response}")
+            await callback.message.answer(response)
+            print(f"[CLIENT_INFO] Response sent successfully to User ID: {user_id}")
+            await state.set_state(ClientStates.client_info_date)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("continue_info_"))
+async def continue_client_info(callback: types.CallbackQuery, state: FSMContext):
+    client_name = callback.data.split("_")[2]
+    user_id = callback.from_user.id
+    user_clients = load_clients(user_id)
+    if client_name in user_clients:
         response = f"Введіть дату для анкети клієнта {client_name} (формат: РРРР-ММ-ДД, наприклад, 2025-04-06). Залиште порожнім для сьогоднішньої дати:"
-        print(f"[CLIENT_INFO] Sending response: {response}")
+        print(f"[CONTINUE_CLIENT_INFO] Sending response: {response}")
         await callback.message.answer(response)
-        print(f"[CLIENT_INFO] Response sent successfully to User ID: {user_id}")
+        print(f"[CONTINUE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
         await state.set_state(ClientStates.client_info_date)
+    await callback.answer()
+
+@router.callback_query(F.data == "cancel_to_main")
+async def cancel_to_main(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    await state.clear()
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Додати клієнта")],
+            [KeyboardButton(text="Перегляд клієнтів")],
+            [KeyboardButton(text="📈 Відслідковування показників клієнтів")],
+        ],
+        resize_keyboard=True
+    )
+    response = "Повертаємося до головного меню."
+    print(f"[CANCEL_TO_MAIN] Sending response: {response}")
+    await callback.message.answer(response, reply_markup=keyboard)
+    print(f"[CANCEL_TO_MAIN] Response sent successfully to User ID: {user_id}")
+    await callback.answer()
+
+@router.callback_query(F.data == "cancel_info")
+async def cancel_info(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    await state.clear()
+    response = "Заповнення анкети скасовано. Остання збережена анкета залишилася без змін."
+    print(f"[CANCEL_INFO] Sending response: {response}")
+    await callback.message.answer(response)
+    print(f"[CANCEL_INFO] Response sent successfully to User ID: {user_id}")
     await callback.answer()
 
 @router.message(StateFilter(ClientStates.client_info_date))
@@ -765,13 +821,47 @@ async def track_client_progress(message: types.Message, state: FSMContext):
         print(f"[TRACK_CLIENT_PROGRESS] Response sent successfully to User ID: {user_id}")
         return
 
+    current_state = await state.get_state()
+    if current_state:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Так!", callback_data="continue_track")],
+            [InlineKeyboardButton(text="Ні", callback_data="cancel_to_main")],
+            [InlineKeyboardButton(text="Відмінити", callback_data="cancel_info")]
+        ])
+        response = "Ви вже почали заповнення анкети. Продовжувати заповнення?"
+        print(f"[TRACK_CLIENT_PROGRESS] Sending response: {response}")
+        await message.answer(response, reply_markup=keyboard)
+        print(f"[TRACK_CLIENT_PROGRESS] Response sent successfully to User ID: {user_id}")
+        await state.set_state(ClientStates.confirm_continue_info)
+    else:
+        response = "Оберіть клієнта для перегляду показників:\n"
+        for client_name in user_clients.keys():
+            response += f"- {client_name}\n"
+        print(f"[TRACK_CLIENT_PROGRESS] Sending response: {response}")
+        await message.answer(response)
+        print(f"[TRACK_CLIENT_PROGRESS] Response sent successfully to User ID: {user_id}")
+        await state.set_state(ClientStates.track_client_select)
+
+@router.callback_query(F.data == "continue_track")
+async def continue_track(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    user_clients = load_clients(user_id)
+    if not user_clients:
+        response = "Список клієнтів порожній."
+        print(f"[CONTINUE_TRACK] Sending response: {response}")
+        await callback.message.answer(response)
+        print(f"[CONTINUE_TRACK] Response sent successfully to User ID: {user_id}")
+        await state.clear()
+        return
+
     response = "Оберіть клієнта для перегляду показників:\n"
     for client_name in user_clients.keys():
         response += f"- {client_name}\n"
-    print(f"[TRACK_CLIENT_PROGRESS] Sending response: {response}")
-    await message.answer(response)
-    print(f"[TRACK_CLIENT_PROGRESS] Response sent successfully to User ID: {user_id}")
+    print(f"[CONTINUE_TRACK] Sending response: {response}")
+    await callback.message.answer(response)
+    print(f"[CONTINUE_TRACK] Response sent successfully to User ID: {user_id}")
     await state.set_state(ClientStates.track_client_select)
+    await callback.answer()
 
 @router.message(StateFilter(ClientStates.track_client_select))
 async def process_track_client_select(message: types.Message, state: FSMContext):
@@ -796,12 +886,17 @@ async def process_track_client_select(message: types.Message, state: FSMContext)
         return
 
     response = f"📊 Показники клієнта {client_name}:\n\n"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
     for profile in profiles:
         response += f"📅 Дата: {profile['date']}\n"
         response += f"Вік: {profile['age']}\n"
         response += f"Вага: {profile['weight']} кг\n"
         response += f"Результати: {profile['results']}\n"
         response += f"Додатково: {profile['additional']}\n\n"
+        keyboard.inline_keyboard.append([
+            InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{client_name}_{profile['date']}"),
+            InlineKeyboardButton(text="Видалити", callback_data=f"delete_info_{client_name}_{profile['date']}")
+        ])
 
     one_week_ago = datetime.now().date() - timedelta(days=7)
     recent_profiles_week = [p for p in profiles if datetime.strptime(p["date"], "%Y-%m-%d").date() >= one_week_ago]
@@ -843,7 +938,7 @@ async def process_track_client_select(message: types.Message, state: FSMContext)
         response += "\nЗа останні 30 днів: даних немає.\n"
 
     print(f"[PROCESS_TRACK_CLIENT_SELECT] Sending response: {response}")
-    await message.answer(response)
+    await message.answer(response, reply_markup=keyboard)
     print(f"[PROCESS_TRACK_CLIENT_SELECT] Response sent successfully to User ID: {user_id}")
     await state.clear()
 
@@ -919,7 +1014,7 @@ async def main():
             await asyncio.sleep(1)
 
     print("Реєструємо обробники...")
-    dp.include_router(router)  # Додаємо роутер до диспетчера
+    dp.include_router(router)
 
     print("Запускаємо polling у фоновому режимі...")
     polling_task = asyncio.create_task(dp.start_polling(bot))
