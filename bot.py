@@ -190,6 +190,52 @@ async def view_clients(message: types.Message, state: FSMContext):
         print(f"[VIEW_CLIENTS] Response sent successfully to User ID: {user_id}")
         return
 
+    current_state = await state.get_state()
+    if current_state:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Так!", callback_data="continue_view")],
+            [InlineKeyboardButton(text="Ні", callback_data="cancel_to_main")],
+            [InlineKeyboardButton(text="Відмінити", callback_data="cancel_info")]
+        ])
+        response = "Ви вже почали заповнення анкети. Продовжувати заповнення?"
+        print(f"[VIEW_CLIENTS] Sending response: {response}")
+        await message.answer(response, reply_markup=keyboard)
+        print(f"[VIEW_CLIENTS] Response sent successfully to User ID: {user_id}")
+        await state.set_state(ClientStates.confirm_continue_info)
+    else:
+        response = "Список твоїх клієнтів:\n\n"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+        for client_name, client_data in user_clients.items():
+            contact = client_data["contact"]
+            if contact.startswith("@"):
+                contact = f"[{contact}](tg://user?id={contact})"
+            else:
+                contact = f"📞 {contact}"
+            response += f"👤 {client_name} | 🏋️‍♂️ Тренування: {client_data['trainings']} | {contact}\n"
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(text="⬅️", callback_data=f"minus_{client_name}"),
+                InlineKeyboardButton(text="📝", callback_data=f"change_{client_name}"),
+                InlineKeyboardButton(text=f"{client_name}: {client_data['trainings']}", callback_data="noop"),
+                InlineKeyboardButton(text="➡️", callback_data=f"plus_{client_name}"),
+                InlineKeyboardButton(text="🗑", callback_data=f"delete_{client_name}"),
+                InlineKeyboardButton(text="ℹ️", callback_data=f"info_{client_name}")
+            ])
+        print(f"[VIEW_CLIENTS] Sending response: {response}")
+        await message.answer(response, reply_markup=keyboard, parse_mode="Markdown")
+        print(f"[VIEW_CLIENTS] Response sent successfully to User ID: {user_id}")
+
+@router.callback_query(F.data == "continue_view")
+async def continue_view(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    user_clients = load_clients(user_id)
+    if not user_clients:
+        response = "Список клієнтів порожній."
+        print(f"[CONTINUE_VIEW] Sending response: {response}")
+        await callback.message.answer(response)
+        print(f"[CONTINUE_VIEW] Response sent successfully to User ID: {user_id}")
+        await state.clear()
+        return
+
     response = "Список твоїх клієнтів:\n\n"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[])
     for client_name, client_data in user_clients.items():
@@ -207,9 +253,11 @@ async def view_clients(message: types.Message, state: FSMContext):
             InlineKeyboardButton(text="🗑", callback_data=f"delete_{client_name}"),
             InlineKeyboardButton(text="ℹ️", callback_data=f"info_{client_name}")
         ])
-    print(f"[VIEW_CLIENTS] Sending response: {response}")
-    await message.answer(response, reply_markup=keyboard, parse_mode="Markdown")
-    print(f"[VIEW_CLIENTS] Response sent successfully to User ID: {user_id}")
+    print(f"[CONTINUE_VIEW] Sending response: {response}")
+    await callback.message.answer(response, reply_markup=keyboard, parse_mode="Markdown")
+    print(f"[CONTINUE_VIEW] Response sent successfully to User ID: {user_id}")
+    await state.clear()
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("minus_"))
 async def minus_training(callback: types.CallbackQuery, state: FSMContext):
@@ -435,7 +483,7 @@ async def client_info(callback: types.CallbackQuery, state: FSMContext):
     user_clients = load_clients(user_id)
     if client_name in user_clients:
         current_state = await state.get_state()
-        if current_state:
+        if current_state and current_state.startswith("ClientStates:client_info"):
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="Так!", callback_data=f"continue_info_{client_name}")],
                 [InlineKeyboardButton(text="Ні", callback_data="cancel_to_main")],
@@ -822,7 +870,7 @@ async def track_client_progress(message: types.Message, state: FSMContext):
         return
 
     current_state = await state.get_state()
-    if current_state:
+    if current_state and current_state.startswith("ClientStates:client_info"):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Так!", callback_data="continue_track")],
             [InlineKeyboardButton(text="Ні", callback_data="cancel_to_main")],
@@ -887,15 +935,15 @@ async def process_track_client_select(message: types.Message, state: FSMContext)
 
     response = f"📊 Показники клієнта {client_name}:\n\n"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-    for profile in profiles:
-        response += f"📅 Дата: {profile['date']}\n"
+    for idx, profile in enumerate(profiles, start=1):
+        response += f"📅 Анкета №{idx} (Дата: {profile['date']}):\n"
         response += f"Вік: {profile['age']}\n"
         response += f"Вага: {profile['weight']} кг\n"
         response += f"Результати: {profile['results']}\n"
         response += f"Додатково: {profile['additional']}\n\n"
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{client_name}_{profile['date']}"),
-            InlineKeyboardButton(text="Видалити", callback_data=f"delete_info_{client_name}_{profile['date']}")
+            InlineKeyboardButton(text=f"Видалити №{idx}", callback_data=f"delete_info_{client_name}_{profile['date']}")
         ])
 
     one_week_ago = datetime.now().date() - timedelta(days=7)
