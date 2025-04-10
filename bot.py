@@ -191,7 +191,7 @@ async def view_clients(message: types.Message, state: FSMContext):
         return
 
     current_state = await state.get_state()
-    if current_state:
+    if current_state and current_state.startswith("ClientStates:client_info"):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Так!", callback_data="continue_view")],
             [InlineKeyboardButton(text="Ні", callback_data="cancel_to_main")],
@@ -651,6 +651,7 @@ async def save_client_info(callback: types.CallbackQuery):
     _, client_name, selected_date = callback.data.split("_", 2)
     user_id = callback.from_user.id
     response = f"Дані для {client_name} за {selected_date} збережено!"
+    print(f"[SAVE_CLIENT_INFO] Callback data: {callback.data}")
     print(f"[SAVE_CLIENT_INFO] Sending response: {response}")
     await callback.message.answer(response)
     print(f"[SAVE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
@@ -661,6 +662,9 @@ async def edit_client_info(callback: types.CallbackQuery, state: FSMContext):
     _, client_name, selected_date = callback.data.split("_", 2)
     user_id = callback.from_user.id
     user_clients = load_clients(user_id)
+    
+    print(f"[EDIT_CLIENT_INFO] Callback data: {callback.data}")
+    print(f"[EDIT_CLIENT_INFO] Client: {client_name}, Date: {selected_date}")
     
     profiles = user_clients[client_name]["profiles"]
     profile_to_edit = next((p for p in profiles if p["date"] == selected_date), None)
@@ -673,6 +677,11 @@ async def edit_client_info(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer(response)
         print(f"[EDIT_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
         await state.set_state(ClientStates.edit_client_info_field)
+    else:
+        response = f"Анкету для {client_name} за {selected_date} не знайдено."
+        print(f"[EDIT_CLIENT_INFO] Sending response: {response}")
+        await callback.message.answer(response)
+        print(f"[EDIT_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
     await callback.answer()
 
 @router.message(StateFilter(ClientStates.edit_client_info_field))
@@ -746,14 +755,23 @@ async def delete_client_info(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     user_clients = load_clients(user_id)
 
-    profiles = user_clients[client_name]["profiles"]
-    user_clients[client_name]["profiles"] = [p for p in profiles if p["date"] != selected_date]
-    save_client(user_id, client_name, user_clients[client_name])
+    print(f"[DELETE_CLIENT_INFO] Callback data: {callback.data}")
+    print(f"[DELETE_CLIENT_INFO] Client: {client_name}, Date: {selected_date}")
 
-    response = f"Дані для {client_name} за {selected_date} видалено!"
-    print(f"[DELETE_CLIENT_INFO] Sending response: {response}")
-    await callback.message.answer(response)
-    print(f"[DELETE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
+    if client_name in user_clients:
+        profiles = user_clients[client_name]["profiles"]
+        user_clients[client_name]["profiles"] = [p for p in profiles if p["date"] != selected_date]
+        save_client(user_id, client_name, user_clients[client_name])
+
+        response = f"Дані для {client_name} за {selected_date} видалено!"
+        print(f"[DELETE_CLIENT_INFO] Sending response: {response}")
+        await callback.message.answer(response)
+        print(f"[DELETE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
+    else:
+        response = f"Клієнта {client_name} не знайдено."
+        print(f"[DELETE_CLIENT_INFO] Sending response: {response}")
+        await callback.message.answer(response)
+        print(f"[DELETE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
     await callback.answer()
 
 @router.callback_query(F.data.startswith("add_new_info_"))
@@ -933,25 +951,33 @@ async def process_track_client_select(message: types.Message, state: FSMContext)
         await state.clear()
         return
 
-    response = f"📊 Показники клієнта {client_name}:\n\n"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+    # Відправляємо анкети по одній, щоб уникнути обмежень Telegram
     for idx, profile in enumerate(profiles, start=1):
-        response += f"📅 Анкета №{idx} (Дата: {profile['date']}):\n"
+        response = f"📊 Показники клієнта {client_name} (Анкета №{idx}):\n\n"
+        response += f"📅 Дата: {profile['date']}\n"
         response += f"Вік: {profile['age']}\n"
         response += f"Вага: {profile['weight']} кг\n"
         response += f"Результати: {profile['results']}\n"
         response += f"Додатково: {profile['additional']}\n\n"
-        keyboard.inline_keyboard.append([
-            InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{client_name}_{profile['date']}"),
-            InlineKeyboardButton(text=f"Видалити №{idx}", callback_data=f"delete_info_{client_name}_{profile['date']}")
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{client_name}_{profile['date']}"),
+                InlineKeyboardButton(text=f"Видалити №{idx}", callback_data=f"delete_info_{client_name}_{profile['date']}")
+            ]
         ])
 
+        print(f"[PROCESS_TRACK_CLIENT_SELECT] Sending profile {idx}: {response}")
+        await message.answer(response, reply_markup=keyboard)
+        print(f"[PROCESS_TRACK_CLIENT_SELECT] Profile {idx} sent successfully to User ID: {user_id}")
+
+    # Відправляємо статистику окремо
     one_week_ago = datetime.now().date() - timedelta(days=7)
     recent_profiles_week = [p for p in profiles if datetime.strptime(p["date"], "%Y-%m-%d").date() >= one_week_ago]
     one_month_ago = datetime.now().date() - timedelta(days=30)
     recent_profiles_month = [p for p in profiles if datetime.strptime(p["date"], "%Y-%m-%d").date() >= one_month_ago]
 
-    response += "📈 Статистика:\n"
+    response = f"📈 Статистика для {client_name}:\n\n"
     
     if recent_profiles_week:
         response += "За останні 7 днів:\n"
@@ -985,9 +1011,9 @@ async def process_track_client_select(message: types.Message, state: FSMContext)
     else:
         response += "\nЗа останні 30 днів: даних немає.\n"
 
-    print(f"[PROCESS_TRACK_CLIENT_SELECT] Sending response: {response}")
-    await message.answer(response, reply_markup=keyboard)
-    print(f"[PROCESS_TRACK_CLIENT_SELECT] Response sent successfully to User ID: {user_id}")
+    print(f"[PROCESS_TRACK_CLIENT_SELECT] Sending statistics: {response}")
+    await message.answer(response)
+    print(f"[PROCESS_TRACK_CLIENT_SELECT] Statistics sent successfully to User ID: {user_id}")
     await state.clear()
 
 @router.message(Command("update"))
