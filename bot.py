@@ -634,9 +634,9 @@ async def process_client_info_additional(message: types.Message, state: FSMConte
     response += f"Додатково: {profile['additional']}\n"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Зберегти", callback_data=f"save_info_{client_name}_{selected_date}")],
-        [InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{client_name}_{selected_date}")],
-        [InlineKeyboardButton(text="Видалити", callback_data=f"delete_info_{client_name}_{selected_date}")],
+        [InlineKeyboardButton(text="Зберегти", callback_data=f"save_info:{client_name}:{selected_date}")],
+        [InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info:{client_name}:{selected_date}")],
+        [InlineKeyboardButton(text="Видалити", callback_data=f"delete_info:{client_name}:{selected_date}")],
         [InlineKeyboardButton(text="Додати нову інформацію", callback_data=f"add_new_info_{client_name}")],
         [InlineKeyboardButton(text="Аналізувати результати", callback_data=f"analyze_info_{client_name}")]
     ])
@@ -646,9 +646,17 @@ async def process_client_info_additional(message: types.Message, state: FSMConte
     print(f"[PROCESS_CLIENT_INFO_ADDITIONAL] Response sent successfully to User ID: {user_id}")
     await state.clear()
 
-@router.callback_query(F.data.startswith("save_info_"))
+@router.callback_query(F.data.startswith("save_info:"))
 async def save_client_info(callback: types.CallbackQuery):
-    _, client_name, selected_date = callback.data.split("_", 2)
+    try:
+        _, client_name, selected_date = callback.data.split(":", 2)
+    except ValueError:
+        response = "Помилка: Некоректний формат callback_data."
+        print(f"[SAVE_CLIENT_INFO] Error: Invalid callback_data format: {callback.data}")
+        await callback.message.answer(response)
+        await callback.answer()
+        return
+
     user_id = callback.from_user.id
     response = f"Дані для {client_name} за {selected_date} збережено!"
     print(f"[SAVE_CLIENT_INFO] Callback data: {callback.data}")
@@ -657,16 +665,31 @@ async def save_client_info(callback: types.CallbackQuery):
     print(f"[SAVE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
     await callback.answer()
 
-@router.callback_query(F.data.startswith("edit_info_"))
+@router.callback_query(F.data.startswith("edit_info:"))
 async def edit_client_info(callback: types.CallbackQuery, state: FSMContext):
-    _, client_name, selected_date = callback.data.split("_", 2)
+    try:
+        _, client_name, selected_date = callback.data.split(":", 2)
+    except ValueError:
+        response = "Помилка: Некоректний формат callback_data."
+        print(f"[EDIT_CLIENT_INFO] Error: Invalid callback_data format: {callback.data}")
+        await callback.message.answer(response)
+        await callback.answer()
+        return
+
     user_id = callback.from_user.id
     user_clients = load_clients(user_id)
     
     print(f"[EDIT_CLIENT_INFO] Callback data: {callback.data}")
     print(f"[EDIT_CLIENT_INFO] Client: {client_name}, Date: {selected_date}")
     
-    profiles = user_clients[client_name]["profiles"]
+    if client_name not in user_clients:
+        response = f"Клієнта {client_name} не знайдено."
+        print(f"[EDIT_CLIENT_INFO] Error: Client {client_name} not found")
+        await callback.message.answer(response)
+        await callback.answer()
+        return
+
+    profiles = user_clients[client_name].get("profiles", [])
     profile_to_edit = next((p for p in profiles if p["date"] == selected_date), None)
     
     if profile_to_edit:
@@ -679,7 +702,7 @@ async def edit_client_info(callback: types.CallbackQuery, state: FSMContext):
         await state.set_state(ClientStates.edit_client_info_field)
     else:
         response = f"Анкету для {client_name} за {selected_date} не знайдено."
-        print(f"[EDIT_CLIENT_INFO] Sending response: {response}")
+        print(f"[EDIT_CLIENT_INFO] Error: Profile for {client_name} on {selected_date} not found")
         await callback.message.answer(response)
         print(f"[EDIT_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
     await callback.answer()
@@ -737,9 +760,9 @@ async def process_edit_client_info_value(message: types.Message, state: FSMConte
     response += f"Додатково: {profile['additional']}\n"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Зберегти", callback_data=f"save_info_{client_name}_{selected_date}")],
-        [InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{client_name}_{selected_date}")],
-        [InlineKeyboardButton(text="Видалити", callback_data=f"delete_info_{client_name}_{selected_date}")],
+        [InlineKeyboardButton(text="Зберегти", callback_data=f"save_info:{client_name}:{selected_date}")],
+        [InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info:{client_name}:{selected_date}")],
+        [InlineKeyboardButton(text="Видалити", callback_data=f"delete_info:{client_name}:{selected_date}")],
         [InlineKeyboardButton(text="Додати нову інформацію", callback_data=f"add_new_info_{client_name}")],
         [InlineKeyboardButton(text="Аналізувати результати", callback_data=f"analyze_info_{client_name}")]
     ])
@@ -749,9 +772,17 @@ async def process_edit_client_info_value(message: types.Message, state: FSMConte
     print(f"[PROCESS_EDIT_CLIENT_INFO_VALUE] Response sent successfully to User ID: {user_id}")
     await state.clear()
 
-@router.callback_query(F.data.startswith("delete_info_"))
+@router.callback_query(F.data.startswith("delete_info:"))
 async def delete_client_info(callback: types.CallbackQuery):
-    _, client_name, selected_date = callback.data.split("_", 2)
+    try:
+        _, client_name, selected_date = callback.data.split(":", 2)
+    except ValueError:
+        response = "Помилка: Некоректний формат callback_data."
+        print(f"[DELETE_CLIENT_INFO] Error: Invalid callback_data format: {callback.data}")
+        await callback.message.answer(response)
+        await callback.answer()
+        return
+
     user_id = callback.from_user.id
     user_clients = load_clients(user_id)
 
@@ -759,7 +790,7 @@ async def delete_client_info(callback: types.CallbackQuery):
     print(f"[DELETE_CLIENT_INFO] Client: {client_name}, Date: {selected_date}")
 
     if client_name in user_clients:
-        profiles = user_clients[client_name]["profiles"]
+        profiles = user_clients[client_name].get("profiles", [])
         user_clients[client_name]["profiles"] = [p for p in profiles if p["date"] != selected_date]
         save_client(user_id, client_name, user_clients[client_name])
 
@@ -769,7 +800,7 @@ async def delete_client_info(callback: types.CallbackQuery):
         print(f"[DELETE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
     else:
         response = f"Клієнта {client_name} не знайдено."
-        print(f"[DELETE_CLIENT_INFO] Sending response: {response}")
+        print(f"[DELETE_CLIENT_INFO] Error: Client {client_name} not found")
         await callback.message.answer(response)
         print(f"[DELETE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
     await callback.answer()
@@ -942,7 +973,7 @@ async def process_track_client_select(message: types.Message, state: FSMContext)
         await state.clear()
         return
 
-    profiles = user_clients[client_name]["profiles"]
+    profiles = user_clients[client_name].get("profiles", [])
     if not profiles:
         response = f"Інформації про {client_name} немає. Будь ласка, заповніть анкету результатів."
         print(f"[PROCESS_TRACK_CLIENT_SELECT] Sending response: {response}")
@@ -962,8 +993,8 @@ async def process_track_client_select(message: types.Message, state: FSMContext)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{client_name}_{profile['date']}"),
-                InlineKeyboardButton(text=f"Видалити №{idx}", callback_data=f"delete_info_{client_name}_{profile['date']}")
+                InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info:{client_name}:{profile['date']}"),
+                InlineKeyboardButton(text=f"Видалити №{idx}", callback_data=f"delete_info:{client_name}:{profile['date']}")
             ]
         ])
 
