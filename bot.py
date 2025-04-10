@@ -40,7 +40,6 @@ class ClientStates(StatesGroup):
     client_info_additional = State()
     client_info_date = State()
     track_client_select = State()
-    track_client_view = State()
     edit_client_info_select_date = State()
     edit_client_info_field = State()
     delete_client_info_select_date = State()
@@ -634,10 +633,12 @@ async def process_client_info_additional(message: types.Message, state: FSMConte
     response += f"Результати: {profile['results']}\n"
     response += f"Додатково: {profile['additional']}\n"
 
+    # Спрощуємо callback_data, використовуючи індекс профілю
+    profile_index = len(user_clients[client_name]["profiles"]) - 1  # Останній доданий профіль
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Зберегти", callback_data=f"save_info_{client_name}_{selected_date}")],
-        [InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{client_name}_{selected_date}")],
-        [InlineKeyboardButton(text="Видалити", callback_data=f"delete_info_{client_name}_{selected_date}")],
+        [InlineKeyboardButton(text="Зберегти", callback_data=f"save_info_{profile_index}")],
+        [InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{profile_index}")],
+        [InlineKeyboardButton(text="Видалити", callback_data=f"delete_info_{profile_index}")],
         [InlineKeyboardButton(text="Додати нову інформацію", callback_data=f"add_new_info_{client_name}")],
         [InlineKeyboardButton(text="Аналізувати результати", callback_data=f"analyze_info_{client_name}")]
     ])
@@ -649,9 +650,9 @@ async def process_client_info_additional(message: types.Message, state: FSMConte
 
 @router.callback_query(F.data.startswith("save_info_"))
 async def save_client_info(callback: types.CallbackQuery):
-    _, client_name, selected_date = callback.data.split("_", 2)
+    profile_index = int(callback.data.split("_")[2])
     user_id = callback.from_user.id
-    response = f"Дані для {client_name} за {selected_date} збережено!"
+    response = f"Дані для профілю №{profile_index} збережено!"
     print(f"[SAVE_CLIENT_INFO] Callback data: {callback.data}")
     print(f"[SAVE_CLIENT_INFO] Sending response: {response}")
     await callback.message.answer(response)
@@ -660,29 +661,46 @@ async def save_client_info(callback: types.CallbackQuery):
 
 @router.callback_query(F.data.startswith("edit_info_"))
 async def edit_client_info(callback: types.CallbackQuery, state: FSMContext):
-    _, client_name, selected_date = callback.data.split("_", 2)
+    try:
+        profile_index = int(callback.data.split("_")[2])
+    except (IndexError, ValueError):
+        response = "Помилка: Некоректний формат callback_data."
+        print(f"[EDIT_CLIENT_INFO] Error: Invalid callback_data format: {callback.data}")
+        await callback.message.answer(response)
+        await callback.answer()
+        return
+
     user_id = callback.from_user.id
     user_clients = load_clients(user_id)
     
-    print(f"[EDIT_CLIENT_INFO] Callback data: {callback.data}")
-    print(f"[EDIT_CLIENT_INFO] Client: {client_name}, Date: {selected_date}")
-    
-    profiles = user_clients[client_name]["profiles"]
-    profile_to_edit = next((p for p in profiles if p["date"] == selected_date), None)
-    
-    if profile_to_edit:
-        response = f"Яке поле хочете відредагувати для {client_name} за {selected_date}?\n"
-        response += "Доступні поля: Вік, Вага, Результати, Додатково"
-        await state.update_data(client_name=client_name, selected_date=selected_date)
-        print(f"[EDIT_CLIENT_INFO] Sending response: {response}")
+    # Зберігаємо client_name у стані, щоб знати, до якого клієнта відноситься профіль
+    data = await state.get_data()
+    client_name = data.get("client_name")
+    if not client_name or client_name not in user_clients:
+        response = "Помилка: Не вдалося визначити клієнта. Спробуйте ще раз."
+        print(f"[EDIT_CLIENT_INFO] Error: Client name not found in state")
         await callback.message.answer(response)
-        print(f"[EDIT_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
-        await state.set_state(ClientStates.edit_client_info_field)
-    else:
-        response = f"Анкету для {client_name} за {selected_date} не знайдено."
-        print(f"[EDIT_CLIENT_INFO] Sending response: {response}")
+        await callback.answer()
+        return
+
+    profiles = user_clients[client_name].get("profiles", [])
+    if profile_index < 0 or profile_index >= len(profiles):
+        response = f"Анкету з індексом {profile_index} не знайдено."
+        print(f"[EDIT_CLIENT_INFO] Error: Profile index {profile_index} out of range")
         await callback.message.answer(response)
-        print(f"[EDIT_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
+        await callback.answer()
+        return
+
+    profile_to_edit = profiles[profile_index]
+    selected_date = profile_to_edit["date"]
+
+    response = f"Яке поле хочете відредагувати для {client_name} за {selected_date}?\n"
+    response += "Доступні поля: Вік, Вага, Результати, Додатково"
+    await state.update_data(client_name=client_name, selected_date=selected_date, profile_index=profile_index)
+    print(f"[EDIT_CLIENT_INFO] Sending response: {response}")
+    await callback.message.answer(response)
+    print(f"[EDIT_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
+    await state.set_state(ClientStates.edit_client_info_field)
     await callback.answer()
 
 @router.message(StateFilter(ClientStates.edit_client_info_field))
@@ -712,22 +730,22 @@ async def process_edit_client_info_value(message: types.Message, state: FSMConte
     data = await state.get_data()
     client_name = data["client_name"]
     selected_date = data["selected_date"]
+    profile_index = data["profile_index"]
     field = data["field_to_edit"]
     user_id = message.from_user.id
     user_clients = load_clients(user_id)
 
     profiles = user_clients[client_name]["profiles"]
-    for profile in profiles:
-        if profile["date"] == selected_date:
-            if field == "вік":
-                profile["age"] = new_value
-            elif field == "вага":
-                profile["weight"] = new_value
-            elif field == "результати":
-                profile["results"] = new_value
-            elif field == "додатково":
-                profile["additional"] = new_value
-            break
+    profile = profiles[profile_index]
+    if profile["date"] == selected_date:
+        if field == "вік":
+            profile["age"] = new_value
+        elif field == "вага":
+            profile["weight"] = new_value
+        elif field == "результати":
+            profile["results"] = new_value
+        elif field == "додатково":
+            profile["additional"] = new_value
 
     save_client(user_id, client_name, user_clients[client_name])
 
@@ -738,9 +756,9 @@ async def process_edit_client_info_value(message: types.Message, state: FSMConte
     response += f"Додатково: {profile['additional']}\n"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Зберегти", callback_data=f"save_info_{client_name}_{selected_date}")],
-        [InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{client_name}_{selected_date}")],
-        [InlineKeyboardButton(text="Видалити", callback_data=f"delete_info_{client_name}_{selected_date}")],
+        [InlineKeyboardButton(text="Зберегти", callback_data=f"save_info_{profile_index}")],
+        [InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{profile_index}")],
+        [InlineKeyboardButton(text="Видалити", callback_data=f"delete_info_{profile_index}")],
         [InlineKeyboardButton(text="Додати нову інформацію", callback_data=f"add_new_info_{client_name}")],
         [InlineKeyboardButton(text="Аналізувати результати", callback_data=f"analyze_info_{client_name}")]
     ])
@@ -751,33 +769,50 @@ async def process_edit_client_info_value(message: types.Message, state: FSMConte
     await state.clear()
 
 @router.callback_query(F.data.startswith("delete_info_"))
-async def delete_client_info(callback: types.CallbackQuery):
-    _, client_name, selected_date = callback.data.split("_", 2)
+async def delete_client_info(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        profile_index = int(callback.data.split("_")[2])
+    except (IndexError, ValueError):
+        response = "Помилка: Некоректний формат callback_data."
+        print(f"[DELETE_CLIENT_INFO] Error: Invalid callback_data format: {callback.data}")
+        await callback.message.answer(response)
+        await callback.answer()
+        return
+
     user_id = callback.from_user.id
     user_clients = load_clients(user_id)
 
-    print(f"[DELETE_CLIENT_INFO] Callback data: {callback.data}")
-    print(f"[DELETE_CLIENT_INFO] Client: {client_name}, Date: {selected_date}")
-
-    if client_name in user_clients:
-        profiles = user_clients[client_name]["profiles"]
-        user_clients[client_name]["profiles"] = [p for p in profiles if p["date"] != selected_date]
-        save_client(user_id, client_name, user_clients[client_name])
-
-        response = f"Дані для {client_name} за {selected_date} видалено!"
-        print(f"[DELETE_CLIENT_INFO] Sending response: {response}")
+    # Отримуємо client_name із стану
+    data = await state.get_data()
+    client_name = data.get("client_name")
+    if not client_name or client_name not in user_clients:
+        response = "Помилка: Не вдалося визначити клієнта. Спробуйте ще раз."
+        print(f"[DELETE_CLIENT_INFO] Error: Client name not found in state")
         await callback.message.answer(response)
-        print(f"[DELETE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
-    else:
-        response = f"Клієнта {client_name} не знайдено."
-        print(f"[DELETE_CLIENT_INFO] Sending response: {response}")
+        await callback.answer()
+        return
+
+    profiles = user_clients[client_name].get("profiles", [])
+    if profile_index < 0 or profile_index >= len(profiles):
+        response = f"Анкету з індексом {profile_index} не знайдено."
+        print(f"[DELETE_CLIENT_INFO] Error: Profile index {profile_index} out of range")
         await callback.message.answer(response)
-        print(f"[DELETE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
+        await callback.answer()
+        return
+
+    selected_date = profiles[profile_index]["date"]
+    user_clients[client_name]["profiles"].pop(profile_index)
+    save_client(user_id, client_name, user_clients[client_name])
+
+    response = f"Дані для {client_name} за {selected_date} видалено!"
+    print(f"[DELETE_CLIENT_INFO] Sending response: {response}")
+    await callback.message.answer(response)
+    print(f"[DELETE_CLIENT_INFO] Response sent successfully to User ID: {user_id}")
     await callback.answer()
 
 @router.callback_query(F.data.startswith("add_new_info_"))
 async def add_new_client_info(callback: types.CallbackQuery, state: FSMContext):
-    client_name = callback.data.split("_", 3)[3]
+    client_name = callback.data.split("_")[3]
     user_id = callback.from_user.id
     user_clients = load_clients(user_id)
     if client_name in user_clients:
@@ -813,7 +848,7 @@ async def process_add_new_client_info_date(message: types.Message, state: FSMCon
 
 @router.callback_query(F.data.startswith("analyze_info_"))
 async def analyze_client_info(callback: types.CallbackQuery):
-    client_name = callback.data.split("_", 2)[2]
+    client_name = callback.data.split("_")[2]
     user_id = callback.from_user.id
     user_clients = load_clients(user_id)
     
@@ -906,3 +941,211 @@ async def track_client_progress(message: types.Message, state: FSMContext):
             response += f"- {client_name}\n"
         print(f"[TRACK_CLIENT_PROGRESS] Sending response: {response}")
         await message.answer(response)
+        print(f"[TRACK_CLIENT_PROGRESS] Response sent successfully to User ID: {user_id}")
+        await state.set_state(ClientStates.track_client_select)
+
+@router.callback_query(F.data == "continue_track")
+async def continue_track(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    user_clients = load_clients(user_id)
+    if not user_clients:
+        response = "Список клієнтів порожній."
+        print(f"[CONTINUE_TRACK] Sending response: {response}")
+        await callback.message.answer(response)
+        print(f"[CONTINUE_TRACK] Response sent successfully to User ID: {user_id}")
+        await state.clear()
+        return
+
+    response = "Оберіть клієнта для перегляду показників:\n"
+    for client_name in user_clients.keys():
+        response += f"- {client_name}\n"
+    print(f"[CONTINUE_TRACK] Sending response: {response}")
+    await callback.message.answer(response)
+    print(f"[CONTINUE_TRACK] Response sent successfully to User ID: {user_id}")
+    await state.set_state(ClientStates.track_client_select)
+    await callback.answer()
+
+@router.message(StateFilter(ClientStates.track_client_select))
+async def process_track_client_select(message: types.Message, state: FSMContext):
+    client_name = message.text.strip()
+    user_id = message.from_user.id
+    user_clients = load_clients(user_id)
+    if client_name not in user_clients:
+        response = "Такого клієнта не знайдено."
+        print(f"[PROCESS_TRACK_CLIENT_SELECT] Sending response: {response}")
+        await message.answer(response)
+        print(f"[PROCESS_TRACK_CLIENT_SELECT] Response sent successfully to User ID: {user_id}")
+        await state.clear()
+        return
+
+    profiles = user_clients[client_name].get("profiles", [])
+    if not profiles:
+        response = f"Інформації про {client_name} немає. Будь ласка, заповніть анкету результатів."
+        print(f"[PROCESS_TRACK_CLIENT_SELECT] Sending response: {response}")
+        await message.answer(response)
+        print(f"[PROCESS_TRACK_CLIENT_SELECT] Response sent successfully to User ID: {user_id}")
+        await state.clear()
+        return
+
+    # Зберігаємо client_name у стані для подальшого використання
+    await state.update_data(client_name=client_name)
+
+    # Відправляємо анкети по одній, використовуючи індекси
+    for idx, profile in enumerate(profiles):
+        response = f"📊 Показники клієнта {client_name} (Анкета №{idx + 1}):\n\n"
+        response += f"📅 Дата: {profile['date']}\n"
+        response += f"Вік: {profile['age']}\n"
+        response += f"Вага: {profile['weight']} кг\n"
+        response += f"Результати: {profile['results']}\n"
+        response += f"Додатково: {profile['additional']}\n\n"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Редагувати", callback_data=f"edit_info_{idx}"),
+                InlineKeyboardButton(text=f"Видалити №{idx + 1}", callback_data=f"delete_info_{idx}")
+            ]
+        ])
+
+        print(f"[PROCESS_TRACK_CLIENT_SELECT] Sending profile {idx + 1}: {response}")
+        await message.answer(response, reply_markup=keyboard)
+        print(f"[PROCESS_TRACK_CLIENT_SELECT] Profile {idx + 1} sent successfully to User ID: {user_id}")
+
+    # Відправляємо статистику окремо
+    one_week_ago = datetime.now().date() - timedelta(days=7)
+    recent_profiles_week = [p for p in profiles if datetime.strptime(p["date"], "%Y-%m-%d").date() >= one_week_ago]
+    one_month_ago = datetime.now().date() - timedelta(days=30)
+    recent_profiles_month = [p for p in profiles if datetime.strptime(p["date"], "%Y-%m-%d").date() >= one_month_ago]
+
+    response = f"📈 Статистика для {client_name}:\n\n"
+    
+    if recent_profiles_week:
+        response += "За останні 7 днів:\n"
+        if len(recent_profiles_week) > 1:
+            first_week = recent_profiles_week[0]
+            last_week = recent_profiles_week[-1]
+            try:
+                weight_change_week = float(last_week["weight"]) - float(first_week["weight"])
+                response += f"Зміна ваги: {weight_change_week:+.1f} кг\n"
+            except (ValueError, TypeError):
+                response += "Зміна ваги: дані недоступні\n"
+            response += f"Останні результати: {last_week['results']}\n"
+        else:
+            response += "Недостатньо даних для аналізу за тиждень.\n"
+    else:
+        response += "За останні 7 днів: даних немає.\n"
+
+    if recent_profiles_month:
+        response += "\nЗа останні 30 днів:\n"
+        if len(recent_profiles_month) > 1:
+            first_month = recent_profiles_month[0]
+            last_month = recent_profiles_month[-1]
+            try:
+                weight_change_month = float(last_month["weight"]) - float(first_month["weight"])
+                response += f"Зміна ваги: {weight_change_month:+.1f} кг\n"
+            except (ValueError, TypeError):
+                response += "Зміна ваги: дані недоступні\n"
+            response += f"Останні результати: {last_month['results']}\n"
+        else:
+            response += "Недостатньо даних для аналізу за місяць.\n"
+    else:
+        response += "\nЗа останні 30 днів: даних немає.\n"
+
+    print(f"[PROCESS_TRACK_CLIENT_SELECT] Sending statistics: {response}")
+    await message.answer(response)
+    print(f"[PROCESS_TRACK_CLIENT_SELECT] Statistics sent successfully to User ID: {user_id}")
+    await state.clear()
+
+@router.message(Command("update"))
+async def update_bot(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in ALLOWED_USERS:
+        response = "У вас немає доступу до цієї функції."
+        print(f"[UPDATE] Sending response: {response}")
+        await message.answer(response)
+        print(f"[UPDATE] Response sent successfully to User ID: {user_id}")
+        return
+
+    response = "Оновлення бота..."
+    print(f"[UPDATE] Sending response: {response}")
+    await message.answer(response)
+    print(f"[UPDATE] Response sent successfully to User ID: {user_id}")
+
+    url = "https://raw.githubusercontent.com/bohdan123/telegram-bot-code/main/bot.py"
+    try:
+        response = requests.get(url)
+        if response.status_code != 200:
+            response = f"Помилка при завантаженні коду: {response.status_code} {response.reason}"
+            print(f"[UPDATE] Sending response: {response}")
+            await message.answer(response)
+            print(f"[UPDATE] Response sent successfully to User ID: {user_id}")
+            return
+
+        with open("/app/bot.py", "w") as f:
+            f.write(response.text)
+
+        response = "Код оновлено! Перезапускаю бота..."
+        print(f"[UPDATE] Sending response: {response}")
+        await message.answer(response)
+        print(f"[UPDATE] Response sent successfully to User ID: {user_id}")
+
+        os._exit(0)
+    except Exception as e:
+        response = f"Помилка при оновленні: {e}"
+        print(f"[UPDATE] Sending response: {response}")
+        await message.answer(response)
+        print(f"[UPDATE] Response sent successfully to User ID: {user_id}")
+
+async def main():
+    print("Запускаємо бота...")
+    print("Починаємо ініціалізацію бота...")
+
+    try:
+        bot_info = await bot.get_me()
+        print(f"Бот успішно авторизований: {bot_info.username}")
+    except Exception as e:
+        print(f"Помилка авторизації: {e}")
+        raise Exception("Токен бота невалідний. Перевірте TELEGRAM_TOKEN у змінних середовища.")
+
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        print(f"Перевіряємо статус вебхука (спроба {attempt}/{max_attempts})...")
+        try:
+            webhook_info = await bot.get_webhook_info()
+            print(f"Статус вебхука: {webhook_info}")
+            if webhook_info.url:
+                print("Вебхук активний, видаляємо...")
+                await bot.delete_webhook(drop_pending_updates=True)
+                print("Вебхук успішно видалено.")
+            else:
+                print("Вебхук не активний, продовжуємо...")
+            break
+        except Exception as e:
+            print(f"Помилка при перевірці/видаленні вебхука: {e}")
+            if attempt == max_attempts:
+                print("Не вдалося видалити вебхук після кількох спроб. Зупиняємо бота.")
+                raise Exception("Не вдалося видалити вебхук. Перевірте токен і налаштування Telegram.")
+            await asyncio.sleep(1)
+
+    print("Реєструємо обробники...")
+    dp.include_router(router)
+
+    print("Запускаємо polling у фоновому режимі...")
+    polling_task = asyncio.create_task(dp.start_polling(bot))
+    print("Polling запущено.")
+
+    print("Запускаємо FastAPI-сервер...")
+    config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+    print("Зупиняємо polling...")
+    await dp.stop_polling()
+    await polling_task
+    print("Бот зупинено.")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"Помилка при запуску бота: {e}")
+        sys.exit(1)
